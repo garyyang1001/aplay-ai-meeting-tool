@@ -1,0 +1,54 @@
+# 核心框架
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# WhisperX 和相關依賴
+whisperx==3.1.5
+torch>=2.0.0
+torchaudio>=2.0.0
+transformers>=4.21.0
+
+# 音訊處理
+soundfile>=0.12.1
+librosa==0.10.1
+pydub==0.25.1
+
+# 任務隊列
+celery==5.3.4
+redis==5.0.1
+
+# HTTP 客戶端
+httpx==0.25.2
+aiohttp==3.9.1
+
+# 資料處理
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Firebase
+firebase-admin==6.2.0
+
+# 環境變數
+python-dotenv==1.0.0
+
+# 資料驗證
+pydantic==2.5.0
+
+# 日誌和監控
+loguru==0.7.2
+psutil==5.9.6
+prometheus-client==0.19.0
+
+# GPU 監控 (可選)
+GPUtil==1.4.0
+
+# 測試
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+
+# 開發工具
+black==23.11.0
+flake8==6.1.0
+isort==5.12.0
