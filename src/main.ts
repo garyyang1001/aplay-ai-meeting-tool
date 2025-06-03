@@ -1,3 +1,4 @@
+/// <reference types="../vite-env" />
 import { OpenRouterAPI } from './api';
 
 // 全域變數
