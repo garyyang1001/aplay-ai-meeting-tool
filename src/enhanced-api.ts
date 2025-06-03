@@ -322,8 +322,8 @@ export class EnhancedAPIClient {
                     // 獲取最終結果（這裡假設後端會在任務完成後提供完整結果）
                     return {
                         job_id: jobId,
-                        status: 'completed',
-                        ...status
+                        // status: 'completed', // REMOVE THIS LINE
+                        ...status // This will spread the JobStatus object, which includes its own 'status' property
                     } as ProcessingResponse;
                 } else if (status.status === 'failed') {
                     throw new Error(status.error || '處理失敗');
@@ -386,17 +386,42 @@ export class EnhancedAPIClient {
     /**
      * 健康檢查
      */
+    private async fetchWithTimeout(resourceUrl: string, options: RequestInit, timeout: number = 5000): Promise<Response> {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeout);
+
+        try {
+            const response = await fetch(resourceUrl, {
+                ...options,
+                signal: controller.signal
+            });
+            clearTimeout(id);
+            return response;
+        } catch (error) {
+            clearTimeout(id);
+            // Check if the error is an AbortError and rethrow a more specific error or handle as needed
+            if (error instanceof DOMException && error.name === 'AbortError') {
+                throw new Error(`Request timed out after ${timeout} ms`);
+            }
+            throw error; // Rethrow other errors
+        }
+    }
+
+    /**
+     * 健康檢查
+     */
     async healthCheck(): Promise<{ backend: boolean; openrouter: boolean }> {
         const result = { backend: false, openrouter: false };
         
         // 檢查後端
         try {
-            const response = await fetch(`${this.backendUrl}/health`, { 
-                method: 'GET',
-                timeout: 5000 as any 
-            });
+            // Replace the old fetch call with this:
+            const response = await this.fetchWithTimeout(`${this.backendUrl}/health`, {
+                method: 'GET'
+            }, 5000); // Pass timeout as the third argument
             result.backend = response.ok;
-        } catch {
+        } catch (error) { // Catch errors from fetchWithTimeout (e.g., timeout error)
+            console.warn(`Backend health check failed: ${error instanceof Error ? error.message : String(error)}`);
             result.backend = false;
         }
         
