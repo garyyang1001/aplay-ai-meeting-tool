@@ -1,0 +1,35 @@
+{
+  "name": "AI 會議助手",
+  "short_name": "AI會議",
+  "description": "專業級會議錄音、轉錄與 AI 分析工具",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#3B82F6",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "zh-TW",
+  "categories": ["productivity", "business", "utilities"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "開始錄音",
+      "short_name": "錄音",
+      "description": "快速開始會議錄音",
+      "url": "/?action=record"
+    }
+  ]
+}
