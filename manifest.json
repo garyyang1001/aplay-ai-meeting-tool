@@ -1,7 +1,7 @@
 {
   "name": "AI 會議助手",
   "short_name": "AI會議",
-  "description": "專業級會議錄音、轉錄與 AI 分析工具",
+  "description": "專業會議錄音、轉錄、說話者識別和 AI 分析工具",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -9,27 +9,113 @@
   "orientation": "portrait-primary",
   "scope": "/",
   "lang": "zh-TW",
-  "categories": ["productivity", "business", "utilities"],
+  "categories": ["productivity", "business", "education"],
   "icons": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
+      "src": "icons/icon-72x72.png",
+      "sizes": "72x72",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "maskable any"
     },
     {
-      "src": "/icon-512.png",
+      "src": "icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "icons/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "icons/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "maskable any"
     }
   ],
   "shortcuts": [
     {
       "name": "開始錄音",
       "short_name": "錄音",
-      "description": "快速開始會議錄音",
-      "url": "/?action=record"
+      "description": "立即開始會議錄音",
+      "url": "/?action=record",
+      "icons": [
+        {
+          "src": "icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "上傳分析",
+      "short_name": "上傳",
+      "description": "上傳音頻文件進行分析",
+      "url": "/?action=upload",
+      "icons": [
+        {
+          "src": "icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
-  ]
+  ],
+  "screenshots": [
+    {
+      "src": "screenshots/desktop-1.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "AI 會議助手主界面"
+    },
+    {
+      "src": "screenshots/mobile-1.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "移動端錄音界面"
+    }
+  ],
+  "features": [
+    "microphone",
+    "audio-capture",
+    "offline-storage"
+  ],
+  "prefer_related_applications": false,
+  "related_applications": [],
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
 }
