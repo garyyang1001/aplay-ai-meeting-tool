@@ -1,54 +1,60 @@
-# 核心框架
+# FastAPI 和 Web 框架
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 
-# WhisperX 和相關依賴
-whisperx==3.1.5
+# WhisperX 語音處理
+whisperx>=3.1.1
 torch>=2.0.0
 torchaudio>=2.0.0
-transformers>=4.21.0
+transformers>=4.30.0
 
 # 音訊處理
 soundfile>=0.12.1
-librosa==0.10.1
-pydub==0.25.1
+librosa>=0.10.1
+ffmpeg-python>=0.2.0
+pydub>=0.25.1
 
-# 任務隊列
-celery==5.3.4
-redis==5.0.1
+# 說話者辨識 (pyannote.audio)
+pyannote.audio>=3.1.0
 
-# HTTP 客戶端
-httpx==0.25.2
-aiohttp==3.9.1
+# OpenRouter API 客戶端
+requests>=2.31.0
+aiohttp>=3.8.0
 
-# 資料處理
+# 資料處理和工具
 numpy>=1.24.0
 pandas>=2.0.0
-
-# Firebase
-firebase-admin==6.2.0
-
-# 環境變數
-python-dotenv==1.0.0
-
-# 資料驗證
-pydantic==2.5.0
+pydantic>=2.5.0
 
 # 日誌和監控
-loguru==0.7.2
-psutil==5.9.6
-prometheus-client==0.19.0
+python-dotenv>=1.0.0
+psutil>=5.9.0
 
-# GPU 監控 (可選)
-GPUtil==1.4.0
+# 開發和測試
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+isort>=5.12.0
 
-# 測試
-pytest==7.4.3
-pytest-asyncio==0.21.1
-httpx==0.25.2
+# 可選：進階功能
+# celery>=5.3.4  # 背景任務處理（如需要）
+# redis>=5.0.1   # 快取和任務佇列（如需要）
+# firebase-admin>=6.2.0  # Firebase 整合（如需要）
 
-# 開發工具
-black==23.11.0
-flake8==6.1.0
-isort==5.12.0
+# 系統依賴說明：
+# Ubuntu/Debian: 
+#   sudo apt update
+#   sudo apt install ffmpeg libsndfile1 python3-dev
+#
+# macOS:
+#   brew install ffmpeg libsndfile
+#
+# 環境變數需求：
+#   HF_TOKEN - HuggingFace Token (必須)
+#   OPENROUTER_API_KEY - OpenRouter API Key (必須)
+#   WHISPER_MODEL_SIZE - 模型大小，預設 "base"
+#   DEVICE - 計算設備，預設 "auto"
+#   DEFAULT_LANGUAGE - 預設語言，預設 "zh"
+#   MAX_FILE_SIZE - 最大檔案大小(MB)，預設 100
+#   TEMP_DIR - 臨時目錄，預設 "/tmp/ai_meeting_tool"
