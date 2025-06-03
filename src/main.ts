@@ -6,54 +6,9 @@ let mediaRecorder: MediaRecorder | null = null;
 let audioStream: MediaStream | null = null;
 let recordingStartTime: number = 0;
 let recordingTimer: NodeJS.Timeout | null = null;
-let recognition: SpeechRecognition | null = null;
+let recognition: any = null; // 使用 any 避免類型問題
 let isRecording = false;
-
-// 語音識別類型定義
-interface SpeechRecognition extends EventTarget {
-    continuous: boolean;
-    interimResults: boolean;
-    lang: string;
-    start(): void;
-    stop(): void;
-    onresult: (event: SpeechRecognitionEvent) => void;
-    onerror: (event: SpeechRecognitionErrorEvent) => void;
-    onend: () => void;
-}
-
-interface SpeechRecognitionEvent {
-    results: SpeechRecognitionResultList;
-}
-
-interface SpeechRecognitionResultList {
-    length: number;
-    item(index: number): SpeechRecognitionResult;
-    [index: number]: SpeechRecognitionResult;
-}
-
-interface SpeechRecognitionResult {
-    isFinal: boolean;
-    length: number;
-    item(index: number): SpeechRecognitionAlternative;
-    [index: number]: SpeechRecognitionAlternative;
-}
-
-interface SpeechRecognitionAlternative {
-    transcript: string;
-    confidence: number;
-}
-
-interface SpeechRecognitionErrorEvent {
-    error: string;
-    message: string;
-}
-
-declare global {
-    interface Window {
-        SpeechRecognition: typeof SpeechRecognition;
-        webkitSpeechRecognition: typeof SpeechRecognition;
-    }
-}
+let transcriptText = '';
 
 // 初始化
 function init() {
@@ -86,7 +41,7 @@ function checkBrowserSupport() {
     }
     
     // 檢查語音識別支援
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
         supportStatus.push('不支援語音識別');
     }
@@ -97,7 +52,7 @@ function checkBrowserSupport() {
 }
 
 function initSpeechRecognition() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     
     if (SpeechRecognition) {
         recognition = new SpeechRecognition();
@@ -105,7 +60,7 @@ function initSpeechRecognition() {
         recognition.interimResults = true;
         recognition.lang = 'zh-TW'; // 設定為繁體中文
         
-        recognition.onresult = (event: SpeechRecognitionEvent) => {
+        recognition.onresult = (event: any) => {
             let finalTranscript = '';
             let interimTranscript = '';
             
@@ -121,7 +76,7 @@ function initSpeechRecognition() {
             updateTranscript(finalTranscript, interimTranscript);
         };
         
-        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        recognition.onerror = (event: any) => {
             console.error('語音識別錯誤:', event.error);
             showStatus(`語音識別錯誤: ${event.error}`, 'error');
         };
@@ -129,13 +84,15 @@ function initSpeechRecognition() {
         recognition.onend = () => {
             if (isRecording) {
                 // 如果還在錄音，重新啟動語音識別
-                recognition?.start();
+                try {
+                    recognition?.start();
+                } catch (e) {
+                    console.log('語音識別重啟失敗:', e);
+                }
             }
         };
     }
 }
-
-let transcriptText = '';
 
 function updateTranscript(finalText: string, interimText: string) {
     const transcriptElement = document.getElementById('transcript');
@@ -147,14 +104,14 @@ function updateTranscript(finalText: string, interimText: string) {
     }
 }
 
-// 全域函數供 HTML 調用
-(window as any).toggleRecording = async function() {
+// 錄音控制函數
+async function toggleRecording() {
     if (isRecording) {
         await stopRecording();
     } else {
         await startRecording();
     }
-};
+}
 
 async function startRecording() {
     try {
@@ -188,8 +145,10 @@ async function startRecording() {
             const audioUrl = URL.createObjectURL(audioBlob);
             
             const audioPlayer = document.getElementById('audioPlayer') as HTMLAudioElement;
-            audioPlayer.src = audioUrl;
-            audioPlayer.style.display = 'block';
+            if (audioPlayer) {
+                audioPlayer.src = audioUrl;
+                audioPlayer.style.display = 'block';
+            }
         };
         
         // 開始錄音
@@ -200,7 +159,11 @@ async function startRecording() {
         // 開始語音識別
         if (recognition) {
             transcriptText = '';
-            recognition.start();
+            try {
+                recognition.start();
+            } catch (e) {
+                console.error('語音識別啟動失敗:', e);
+            }
         }
         
         // 更新 UI
@@ -215,8 +178,6 @@ async function startRecording() {
     }
 }
 
-(window as any).stopRecording = stopRecording;
-
 async function stopRecording() {
     if (!isRecording) return;
     
@@ -229,7 +190,11 @@ async function stopRecording() {
     
     // 停止語音識別
     if (recognition) {
-        recognition.stop();
+        try {
+            recognition.stop();
+        } catch (e) {
+            console.log('語音識別停止失敗:', e);
+        }
     }
     
     // 停止音頻流
@@ -253,12 +218,12 @@ function updateRecordingUI(recording: boolean) {
     
     if (recording) {
         recordBtn?.classList.add('recording');
-        stopBtn && (stopBtn.style.display = 'inline-block');
+        if (stopBtn) stopBtn.style.display = 'inline-block';
         recordingSection?.classList.add('recording');
         if (recordingStatus) recordingStatus.textContent = '🔴 錄音中...';
     } else {
         recordBtn?.classList.remove('recording');
-        stopBtn && (stopBtn.style.display = 'none');
+        if (stopBtn) stopBtn.style.display = 'none';
         recordingSection?.classList.remove('recording');
         if (recordingStatus) recordingStatus.textContent = '點擊麥克風開始錄製會議';
     }
@@ -290,13 +255,15 @@ function stopRecordingTimer() {
 }
 
 // 文件上傳處理
-(window as any).handleFileUpload = function(event: Event) {
+function handleFileUpload(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (file) {
         const audioUrl = URL.createObjectURL(file);
         const audioPlayer = document.getElementById('audioPlayer') as HTMLAudioElement;
-        audioPlayer.src = audioUrl;
-        audioPlayer.style.display = 'block';
+        if (audioPlayer) {
+            audioPlayer.src = audioUrl;
+            audioPlayer.style.display = 'block';
+        }
         
         const transcript = document.getElementById('transcript');
         if (transcript) {
@@ -305,10 +272,10 @@ function stopRecordingTimer() {
         
         showStatus('音頻文件已上傳');
     }
-};
+}
 
 // AI 分析功能
-(window as any).analyzeTranscript = async function() {
+async function analyzeTranscript() {
     const transcript = document.getElementById('transcript')?.textContent?.trim();
     const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
     const analyzeBtn = document.getElementById('analyzeBtn') as HTMLButtonElement;
@@ -333,7 +300,7 @@ function stopRecordingTimer() {
     
     try {
         const prompt = getPromptTemplate(analysisType);
-        const fullPrompt = `${prompt}\\n\\n會議錄音轉錄內容：\\n${transcript}`;
+        const fullPrompt = `${prompt}\n\n會議錄音轉錄內容：\n${transcript}`;
         
         const response = await api.chat(fullPrompt);
         
@@ -348,7 +315,7 @@ function stopRecordingTimer() {
         analyzeBtn.disabled = false;
         analyzeBtn.textContent = '🤖 開始AI分析';
     }
-};
+}
 
 function getPromptTemplate(type: string): string {
     const templates = {
@@ -376,10 +343,16 @@ function showResult(content: string, isError: boolean = false) {
     if (result) {
         result.innerHTML = isError ? 
             `<div class=\"error\">${content}</div>` : 
-            `<div>${content.replace(/\\n/g, '<br>')}</div>`;
+            `<div>${content.replace(/\n/g, '<br>')}</div>`;
         result.style.display = 'block';
     }
 }
+
+// 綁定全域函數
+(window as any).toggleRecording = toggleRecording;
+(window as any).stopRecording = stopRecording;
+(window as any).handleFileUpload = handleFileUpload;
+(window as any).analyzeTranscript = analyzeTranscript;
 
 // 當 DOM 載入完成時初始化
 if (document.readyState === 'loading') {
