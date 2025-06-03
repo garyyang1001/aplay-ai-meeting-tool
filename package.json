@@ -1,0 +1,22 @@
+{
+  "name": "aplay-ai-meeting-tool",
+  "version": "1.0.0",
+  "description": "阿玩AI會議工具 - 使用 Open Router API 和 Gemma 3 模型的 TypeScript Web 應用程式",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "start": "npm run build && npm run preview"
+  },
+  "dependencies": {
+    "vite": "^5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "keywords": ["AI", "meeting", "typescript", "openrouter", "gemma"],
+  "author": "Gary Yang",
+  "license": "MIT"
+}

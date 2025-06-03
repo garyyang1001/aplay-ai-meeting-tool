@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>阿玩AI會議工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: 40px;
+            max-width: 800px;
+            width: 100%;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .input-section {
+            margin-bottom: 30px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: bold;
+            color: #555;
+        }
+        
+        textarea, input, select {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        textarea:focus, input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        textarea {
+            height: 200px;
+            resize: vertical;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .result {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #667eea;
+            font-style: italic;
+        }
+        
+        .error {
+            background: #ffe6e6;
+            border-left-color: #e74c3c;
+            color: #c0392b;
+        }
+        
+        .status {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 阿玩AI會議工具</h1>
+        
+        <div class="status" id="status">準備就緒</div>
+        
+        <div class="input-section">
+            <label for="meetingContent">會議內容或討論記錄：</label>
+            <textarea 
+                id="meetingContent" 
+                placeholder="請輸入會議記錄、討論內容或任何需要AI分析的文字...\n\n範例：\n- 今天討論了新產品功能\n- 決定下週開始開發\n- 需要市場調研報告"
+            ></textarea>
+        </div>
+        
+        <div class="input-section">
+            <label for="analysisType">分析類型：</label>
+            <select id="analysisType">
+                <option value="summary">會議摘要</option>
+                <option value="action_items">行動項目</option>
+                <option value="key_decisions">重要決策</option>
+                <option value="follow_up">後續追蹤</option>
+                <option value="custom">自定義分析</option>
+            </select>
+        </div>
+        
+        <div class="input-section" id="customPromptSection" style="display: none;">
+            <label for="customPrompt">自定義提示：</label>
+            <input type="text" id="customPrompt" placeholder="請輸入您想要的分析角度...">
+        </div>
+        
+        <button id="analyzeBtn" onclick="analyzeContent()">🚀 開始分析</button>
+        
+        <div id="result" class="result" style="display: none;"></div>
+    </div>
+    
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
