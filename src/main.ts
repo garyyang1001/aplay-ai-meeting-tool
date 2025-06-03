@@ -1,4 +1,3 @@
-/// <reference types="../vite-env" />
 import { OpenRouterAPI } from './api';
 
 // 全域變數
@@ -9,7 +8,7 @@ function init() {
     console.log('阿玩AI會議工具啟動中...');
     
     // 檢查環境變數
-    const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+    const apiKey = (import.meta as any).env.VITE_OPENROUTER_API_KEY as string;
     if (!apiKey) {
         showStatus('警告：未設定 API Key', 'error');
         return;
