@@ -14,8 +14,6 @@ let currentAnalysisResult = ''; // 儲存當前分析結果
 
 // 初始化
 function init() {
-    console.log('阿玩AI語音會議分析工具啟動中...');
-    
     // 檢查瀏覽器支援
     checkBrowserSupport();
     
@@ -541,14 +539,14 @@ function formatShareContent(result: string, analysisType: string): string {
         content = content.substring(0, 800) + '...\n\n📄 完整內容請查看原始分析結果';
     }
     
-    return `🤖 AI會議分析結果 - ${analysisType}\n\n${content}\n\n📅 分析時間：${currentTime}\n🔗 使用工具：阿玩AI語音會議分析工具`;
+    return `🤖 AI會議分析結果 - ${analysisType}\n\n${content}\n\n📅 分析時間：${currentTime}\n🔗 使用工具：好事AI 會議助手會議分析工具`;
 }
 
 // 格式化複製內容（使用完整內容）
 function formatCopyContent(result: string, analysisType: string): string {
     const currentTime = new Date().toLocaleString('zh-TW');
     
-    return `🤖 AI會議分析結果 - ${analysisType}\n\n${result}\n\n📅 分析時間：${currentTime}\n🔗 使用工具：阿玩AI語音會議分析工具`;
+    return `🤖 AI會議分析結果 - ${analysisType}\n\n${result}\n\n📅 分析時間：${currentTime}\n🔗 使用工具：好事AI 會議助手會議分析工具`;
 }
 
 // 顯示/隱藏分享區域

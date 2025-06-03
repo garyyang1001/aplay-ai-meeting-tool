@@ -1,7 +1,7 @@
 {
   "name": "aplay-ai-meeting-tool",
   "version": "1.0.0",
-  "description": "阿玩AI會議工具 - 使用 Open Router API 和 Gemma 3 模型的 TypeScript Web 應用程式",
+  "description": "好事AI 會議助手AI會議工具 - 使用 Open Router API 和 Gemma 3 模型的 TypeScript Web 應用程式",
   "main": "dist/main.js",
   "scripts": {
     "dev": "vite",
