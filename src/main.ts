@@ -10,6 +10,7 @@ let recognition: any = null; // 使用 any 避免類型問題
 let isRecording = false;
 let transcriptText = '';
 let lastProcessedResultIndex = 0; // 追蹤已處理的結果索引
+let currentAnalysisResult = ''; // 儲存當前分析結果
 
 // 初始化
 function init() {
@@ -149,6 +150,9 @@ async function startRecording() {
         if (transcriptElement) {
             transcriptElement.textContent = '';
         }
+        
+        // 隱藏分享區域
+        hideShareSection();
         
         // 請求麥克風權限
         audioStream = await navigator.mediaDevices.getUserMedia({
@@ -338,6 +342,9 @@ async function analyzeTranscript() {
     
     const analysisType = analysisTypeElement.value;
     
+    // 隱藏分享區域
+    hideShareSection();
+    
     // 顯示載入狀態
     analyzeBtn.disabled = true;
     analyzeBtn.textContent = '🤔 AI思考中...';
@@ -350,8 +357,14 @@ async function analyzeTranscript() {
         
         const response = await api.chat(fullPrompt);
         
+        // 儲存分析結果
+        currentAnalysisResult = response;
+        
         showResult(response);
         showStatus('分析完成！');
+        
+        // 顯示分享區域
+        showShareSection();
         
     } catch (error) {
         console.error('分析錯誤:', error);
@@ -374,6 +387,141 @@ function getPromptTemplate(type: string): string {
     };
     
     return templates[type as keyof typeof templates] || templates.summary;
+}
+
+// 分享功能
+function shareToLine() {
+    if (!currentAnalysisResult) {
+        showToast('沒有可分享的分析結果', 'error');
+        return;
+    }
+    
+    try {
+        // 獲取分析類型
+        const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
+        const analysisTypeText = analysisTypeElement.options[analysisTypeElement.selectedIndex].text;
+        
+        // 格式化分享內容
+        const shareContent = formatShareContent(currentAnalysisResult, analysisTypeText);
+        
+        // 檢測設備類型
+        const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        if (isMobile) {
+            // 手機使用 Line URL Scheme
+            const encodedText = encodeURIComponent(shareContent);
+            const lineUrl = `https://line.me/R/msg/text/?${encodedText}`;
+            window.open(lineUrl, '_blank');
+        } else {
+            // 桌面使用 Line 網頁版分享
+            const encodedText = encodeURIComponent(shareContent);
+            const lineUrl = `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(window.location.href)}&text=${encodedText}`;
+            window.open(lineUrl, '_blank', 'width=500,height=500');
+        }
+        
+        showToast('正在打開Line分享...', 'success');
+        
+    } catch (error) {
+        console.error('分享到Line失敗:', error);
+        showToast('分享失敗，請稍後再試', 'error');
+    }
+}
+
+function copyResult() {
+    if (!currentAnalysisResult) {
+        showToast('沒有可複製的分析結果', 'error');
+        return;
+    }
+    
+    try {
+        // 獲取分析類型
+        const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
+        const analysisTypeText = analysisTypeElement.options[analysisTypeElement.selectedIndex].text;
+        
+        // 格式化複製內容
+        const copyContent = formatShareContent(currentAnalysisResult, analysisTypeText);
+        
+        // 複製到剪貼板
+        navigator.clipboard.writeText(copyContent).then(() => {
+            showToast('已複製到剪貼板！', 'success');
+        }).catch((error) => {
+            console.error('複製失敗:', error);
+            // 使用備用方法
+            fallbackCopyText(copyContent);
+        });
+        
+    } catch (error) {
+        console.error('複製失敗:', error);
+        showToast('複製失敗，請手動選取文字', 'error');
+    }
+}
+
+// 備用複製方法（適用於舊瀏覽器）
+function fallbackCopyText(text: string) {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    
+    try {
+        document.execCommand('copy');
+        showToast('已複製到剪貼板！', 'success');
+    } catch (error) {
+        showToast('複製失敗，請手動選取文字', 'error');
+    }
+    
+    document.body.removeChild(textArea);
+}
+
+// 格式化分享內容
+function formatShareContent(result: string, analysisType: string): string {
+    const currentTime = new Date().toLocaleString('zh-TW');
+    
+    // 限制內容長度（Line 建議不超過 1000 字）
+    let content = result;
+    if (content.length > 800) {
+        content = content.substring(0, 800) + '...';
+    }
+    
+    return `🤖 AI會議分析結果 - ${analysisType}
+
+${content}
+
+📅 分析時間：${currentTime}
+🔗 使用工具：阿玩AI語音會議分析工具`;
+}
+
+// 顯示/隱藏分享區域
+function showShareSection() {
+    const shareSection = document.getElementById('shareSection');
+    if (shareSection) {
+        shareSection.classList.add('show');
+    }
+}
+
+function hideShareSection() {
+    const shareSection = document.getElementById('shareSection');
+    if (shareSection) {
+        shareSection.classList.remove('show');
+    }
+}
+
+// 顯示提示訊息
+function showToast(message: string, type: 'success' | 'error' = 'success') {
+    const toast = document.getElementById('toast');
+    if (toast) {
+        toast.textContent = message;
+        toast.style.background = type === 'success' ? '#27ae60' : '#e74c3c';
+        toast.classList.add('show');
+        
+        setTimeout(() => {
+            toast.classList.remove('show');
+        }, 3000);
+    }
 }
 
 function showStatus(message: string, type: 'success' | 'error' | 'info' = 'info') {
@@ -399,6 +547,8 @@ function showResult(content: string, isError: boolean = false) {
 (window as any).stopRecording = stopRecording;
 (window as any).handleFileUpload = handleFileUpload;
 (window as any).analyzeTranscript = analyzeTranscript;
+(window as any).shareToLine = shareToLine;
+(window as any).copyResult = copyResult;
 
 // 當 DOM 載入完成時初始化
 if (document.readyState === 'loading') {
