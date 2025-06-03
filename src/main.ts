@@ -1,28 +1,31 @@
-import { apiClient, ProcessingResponse, TranscriptSegment } from './enhanced-api';
+import enhancedRecorder from './enhanced-recorder';
+import type { ProcessingResult } from './enhanced-recorder';
 
-// 全域變數
-let currentAudioBlob: Blob | null = null;
-let mediaRecorder: MediaRecorder | null = null;
-let audioStream: MediaStream | null = null;
-let recordingStartTime: number = 0;
-let recordingTimer: NodeJS.Timeout | null = null;
-let recognition: any = null; // 使用 any 避免類型問題
-let isRecording = false;
-let transcriptText = '';
-let lastProcessedResultIndex = 0; // 追蹤已處理的結果索引
-let currentAnalysisResult = ''; // 儲存當前分析結果
+// 全域狀態
+let currentResult: ProcessingResult | null = null;
+let isProcessing = false;
 
-// 初始化
+/**
+ * 初始化應用程式
+ */
 function init() {
+    console.log('🚀 AI 會議工具 v2.0 啟動中...');
+    
+    // 設置狀態回調
+    enhancedRecorder.setStatusCallback(showStatus);
+    
     // 檢查瀏覽器支援
     checkBrowserSupport();
     
-    // 初始化語音識別
-    initSpeechRecognition();
+    // 檢查服務狀態
+    checkServiceStatus();
     
-    showStatus('系統已就緒 - 可以開始錄音');
+    showStatus('系統已就緒 - 可以開始錄音', 'success');
 }
 
+/**
+ * 檢查瀏覽器支援
+ */
 function checkBrowserSupport() {
     let supportStatus = [];
     
@@ -37,217 +40,318 @@ function checkBrowserSupport() {
         supportStatus.push('不支援語音識別');
     }
     
-    if (supportStatus.length > 0) {
-        showStatus(`瀏覽器限制：${supportStatus.join(', ')}`, 'error');
+    // 檢查 Firebase 支援
+    if (!('indexedDB' in window)) {
+        supportStatus.push('不支援離線存儲');
     }
-}
-
-function initSpeechRecognition() {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     
-    if (SpeechRecognition) {
-        recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'zh-TW'; // 設定為繁體中文
-        
-        recognition.onresult = (event: any) => {
-            let finalTranscript = '';
-            let interimTranscript = '';
-            
-            // 只處理新的結果，避免重複
-            for (let i = lastProcessedResultIndex; i < event.results.length; i++) {
-                const result = event.results[i];
-                if (result.isFinal) {
-                    finalTranscript += result[0].transcript;
-                    lastProcessedResultIndex = i + 1; // 更新已處理的索引
-                } else {
-                    interimTranscript += result[0].transcript;
-                }
-            }
-            
-            updateTranscript(finalTranscript, interimTranscript);
-        };
-        
-        recognition.onerror = (event: any) => {
-            console.error('語音識別錯誤:', event.error);
-            showStatus(`語音識別錯誤: ${event.error}`, 'error');
-            
-            // 特定錯誤處理
-            if (event.error === 'no-speech') {
-                showStatus('未檢測到語音，請再次嘗試', 'info');
-            } else if (event.error === 'network') {
-                showStatus('網路連接問題，語音識別可能不穩定', 'error');
-            }
-        };
-        
-        recognition.onend = () => {
-            console.log('語音識別結束');
-            if (isRecording) {
-                // 如果還在錄音，重新啟動語音識別
-                try {
-                    setTimeout(() => {
-                        if (recognition && isRecording) {
-                            recognition.start();
-                        }
-                    }, 100); // 短暫延遲避免重複啟動
-                } catch (e) {
-                    console.log('語音識別重啟失敗:', e);
-                }
-            }
-        };
-        
-        recognition.onstart = () => {
-            console.log('語音識別開始');
-        };
+    if (supportStatus.length > 0) {
+        showStatus(`瀏覽器限制：${supportStatus.join(', ')}`, 'warning');
+    } else {
+        showStatus('瀏覽器功能檢查通過', 'success');
     }
 }
 
-function updateTranscript(finalText: string, interimText: string) {
-    const transcriptElement = document.getElementById('transcript');
-    if (transcriptElement) {
-        if (finalText) {
-            transcriptText += finalText + ' ';
-        }
-        
-        // 顯示最終文字 + 臨時文字（用括號標示）
-        const displayText = transcriptText + (interimText ? `(${interimText})` : '');
-        transcriptElement.textContent = displayText;
-        
-        // 自動滾動到底部
-        transcriptElement.scrollTop = transcriptElement.scrollHeight;
+/**
+ * 檢查服務狀態
+ */
+async function checkServiceStatus() {
+    const status = enhancedRecorder.getStatus();
+    
+    const statusElement = document.getElementById('serviceStatus');
+    if (statusElement) {
+        const statusHTML = `
+            <div class="service-status">
+                <div class="status-item ${status.firebaseAvailable ? 'available' : 'unavailable'}">
+                    <span class="status-icon">${status.firebaseAvailable ? '✅' : '❌'}</span>
+                    <span>Firebase: ${status.firebaseAvailable ? '已連接' : '未連接'}</span>
+                </div>
+                <div class="status-item ${status.macMiniStatus.available ? 'available' : 'unavailable'}">
+                    <span class="status-icon">${status.macMiniStatus.available ? '✅' : '❌'}</span>
+                    <span>Mac Mini: ${status.macMiniStatus.available ? '已連接' : '未連接'}</span>
+                </div>
+                <div class="processing-mode">
+                    <span class="mode-label">處理模式:</span>
+                    <span class="mode-value">${getProcessingMode(status)}</span>
+                </div>
+            </div>
+        `;
+        statusElement.innerHTML = statusHTML;
     }
 }
 
-// 錄音控制函數
+/**
+ * 獲取處理模式描述
+ */
+function getProcessingMode(status: any): string {
+    if (status.firebaseAvailable && status.macMiniStatus.available) {
+        return '🚀 專業模式 (Firebase + Mac Mini)';
+    } else if (status.firebaseAvailable) {
+        return '☁️ 雲端模式 (Firebase + OpenRouter)';
+    } else {
+        return '📱 本地模式 (瀏覽器 + OpenRouter)';
+    }
+}
+
+/**
+ * 開始/停止錄音
+ */
 async function toggleRecording() {
-    if (isRecording) {
+    const status = enhancedRecorder.getStatus();
+    
+    if (status.isRecording) {
         await stopRecording();
     } else {
         await startRecording();
     }
 }
 
+/**
+ * 開始錄音
+ */
 async function startRecording() {
-    currentAudioBlob = null;
-    try {
-        // 重置轉錄文字和索引
-        transcriptText = '';
-        lastProcessedResultIndex = 0;
-        
-        // 清空轉錄顯示
-        const transcriptElement = document.getElementById('transcript');
-        if (transcriptElement) {
-            transcriptElement.textContent = '';
+    // 清理之前的結果
+    currentResult = null;
+    hideShareSection();
+    clearResult();
+    
+    const success = await enhancedRecorder.startRecording();
+    
+    if (success) {
+        updateRecordingUI(true);
+        showStatus('錄音開始，正在進行語音識別...', 'success');
+    } else {
+        showStatus('錄音啟動失敗', 'error');
+    }
+}
+
+/**
+ * 停止錄音
+ */
+async function stopRecording() {
+    const audioBlob = await enhancedRecorder.stopRecording();
+    
+    updateRecordingUI(false);
+    
+    if (audioBlob) {
+        // 創建音頻預覽
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audioPlayer = document.getElementById('audioPlayer') as HTMLAudioElement;
+        if (audioPlayer) {
+            audioPlayer.src = audioUrl;
+            audioPlayer.style.display = 'block';
         }
         
-        // 隱藏分享區域
-        hideShareSection();
+        const status = enhancedRecorder.getStatus();
+        if (status.hasTranscript) {
+            showStatus('錄音完成，可以開始 AI 分析', 'success');
+        } else {
+            showStatus('錄音完成，但未檢測到語音內容', 'warning');
+        }
+    } else {
+        showStatus('錄音失敗', 'error');
+    }
+}
+
+/**
+ * 分析轉錄內容
+ */
+async function analyzeTranscript() {
+    if (isProcessing) {
+        showToast('分析進行中，請稍候...', 'warning');
+        return;
+    }
+    
+    const status = enhancedRecorder.getStatus();
+    if (!status.hasTranscript) {
+        showToast('請先錄音或上傳音頻文件', 'error');
+        return;
+    }
+    
+    const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
+    const analyzeBtn = document.getElementById('analyzeBtn') as HTMLButtonElement;
+    
+    if (!analysisTypeElement || !analyzeBtn) {
+        showStatus('UI 元素未找到', 'error');
+        return;
+    }
+    
+    const selectedAnalysisType = analysisTypeElement.value;
+    
+    // 更新 UI 狀態
+    isProcessing = true;
+    analyzeBtn.disabled = true;
+    analyzeBtn.textContent = '🤖 AI 分析中...';
+    
+    hideShareSection();
+    showResult('<div class="loading">⏳ AI 分析中，請稍候...</div>');
+    
+    try {
+        // 獲取最後錄音的音頻
+        const audioPlayer = document.getElementById('audioPlayer') as HTMLAudioElement;
+        let audioBlob: Blob | null = null;
         
-        // 請求麥克風權限
-        audioStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                sampleRate: 44100
+        if (audioPlayer && audioPlayer.src) {
+            // 嘗試重新獲取音頻 Blob
+            try {
+                const response = await fetch(audioPlayer.src);
+                audioBlob = await response.blob();
+            } catch (e) {
+                console.warn('無法獲取音頻 Blob，使用轉錄模式');
+            }
+        }
+        
+        // 如果沒有音頻 Blob，創建一個空的
+        if (!audioBlob) {
+            audioBlob = new Blob([], { type: 'audio/webm' });
+        }
+        
+        // 執行處理
+        const result = await enhancedRecorder.processAudio(audioBlob, selectedAnalysisType);
+        currentResult = result;
+        
+        if (result.status === 'completed') {
+            // 顯示轉錄結果
+            if (result.transcript) {
+                displayTranscriptSegments(result.transcript);
+            }
+            
+            // 顯示分析結果
+            if (result.analysis) {
+                showResult(result.analysis);
+                showShareSection();
+                showStatus('AI 分析完成！', 'success');
+            } else {
+                showResult('分析完成，但未返回有效結果', true);
+                showStatus('分析部分失敗', 'warning');
+            }
+            
+            // 顯示說話者信息
+            if (result.speakers && result.speakers.length > 0) {
+                displaySpeakerInfo(result.speakers);
+            }
+            
+        } else {
+            const errorMsg = result.error || '分析失敗';
+            showResult(`分析失敗：${errorMsg}`, true);
+            showStatus(`分析失敗：${errorMsg}`, 'error');
+        }
+        
+    } catch (error) {
+        console.error('分析過程錯誤:', error);
+        const errorMsg = error instanceof Error ? error.message : '未知錯誤';
+        showResult(`分析失敗：${errorMsg}`, true);
+        showStatus('分析失敗', 'error');
+        
+    } finally {
+        // 恢復 UI 狀態
+        isProcessing = false;
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = '🤖 開始AI分析';
+    }
+}
+
+/**
+ * 顯示轉錄分段
+ */
+function displayTranscriptSegments(segments: any[]) {
+    const transcriptElement = document.getElementById('transcript');
+    if (transcriptElement) {
+        if (segments && segments.length > 0) {
+            const formattedText = segments.map(seg => {
+                const timeStr = seg.timestamp ? 
+                    new Date(seg.timestamp).toLocaleTimeString() : 
+                    `${Math.floor(seg.start || 0 / 60)}:${Math.floor(seg.start || 0 % 60).toString().padStart(2, '0')}`;
+                const speakerStr = seg.speaker || 'SPEAKER';
+                return `[${timeStr}] ${speakerStr}: ${seg.text}`;
+            }).join('\\n');
+            
+            transcriptElement.textContent = formattedText;
+        } else {
+            transcriptElement.textContent = '無轉錄內容返回。';
+        }
+        
+        // 自動滾動到底部
+        transcriptElement.scrollTop = transcriptElement.scrollHeight;
+    }
+}
+
+/**
+ * 顯示說話者信息
+ */
+function displaySpeakerInfo(speakers: any[]) {
+    const speakerInfoElement = document.getElementById('speakerInfo');
+    if (speakerInfoElement) {
+        // 計算說話者統計
+        const speakerStats = new Map();
+        
+        speakers.forEach(seg => {
+            const speaker = seg.speaker || 'UNKNOWN';
+            const duration = (seg.end || 0) - (seg.start || 0);
+            
+            if (speakerStats.has(speaker)) {
+                speakerStats.set(speaker, speakerStats.get(speaker) + duration);
+            } else {
+                speakerStats.set(speaker, duration);
             }
         });
         
-        // 初始化 MediaRecorder
-        const options = { mimeType: 'audio/webm;codecs=opus' };
-        try {
-            mediaRecorder = new MediaRecorder(audioStream, options);
-        } catch (e) {
-            mediaRecorder = new MediaRecorder(audioStream);
-        }
-        
-        const audioChunks: Blob[] = [];
-        
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                audioChunks.push(event.data);
-            }
-        };
-        
-        mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            currentAudioBlob = audioBlob;
-            const audioUrl = URL.createObjectURL(audioBlob);
+        // 生成說話者信息 HTML
+        const totalTime = Array.from(speakerStats.values()).reduce((a, b) => a + b, 0);
+        const speakerHTML = Array.from(speakerStats.entries()).map(([speaker, time]) => {
+            const percentage = totalTime > 0 ? ((time / totalTime) * 100).toFixed(1) : '0';
+            const timeStr = `${Math.floor(time / 60)}:${Math.floor(time % 60).toString().padStart(2, '0')}`;
             
-            const audioPlayer = document.getElementById('audioPlayer') as HTMLAudioElement;
-            if (audioPlayer) {
-                audioPlayer.src = audioUrl;
-                audioPlayer.style.display = 'block';
-            }
-        };
+            return `
+                <div class="speaker-stat">
+                    <div class="speaker-name">${speaker.replace('SPEAKER_', 'Speaker ')}</div>
+                    <div class="speaker-time">${timeStr} (${percentage}%)</div>
+                    <div class="speaker-bar">
+                        <div class="speaker-bar-fill" style="width: ${percentage}%"></div>
+                    </div>
+                </div>
+            `;
+        }).join('');
         
-        // 開始錄音
-        mediaRecorder.start(1000); // 每秒收集一次數據
-        isRecording = true;
-        recordingStartTime = Date.now();
-        
-        // 開始語音識別
-        if (recognition) {
-            try {
-                recognition.start();
-            } catch (e) {
-                console.error('語音識別啟動失敗:', e);
-                showStatus('語音識別啟動失敗，僅進行錄音', 'error');
-            }
-        }
-        
-        // 更新 UI
-        updateRecordingUI(true);
-        startRecordingTimer();
-        
-        showStatus('正在錄音中...');
-        
-    } catch (error) {
-        console.error('錄音啟動失敗:', error);
-        showStatus('錄音啟動失敗，請檢查麥克風權限', 'error');
+        speakerInfoElement.innerHTML = `
+            <h3>說話者分析</h3>
+            <div class="speaker-stats">
+                ${speakerHTML}
+            </div>
+        `;
+        speakerInfoElement.style.display = 'block';
     }
 }
 
-async function stopRecording() {
-    if (!isRecording) return;
-    
-    isRecording = false;
-    
-    // 停止錄音
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
-    }
-    
-    // 停止語音識別
-    if (recognition) {
-        try {
-            recognition.stop();
-        } catch (e) {
-            console.log('語音識別停止失敗:', e);
+/**
+ * 文件上傳處理
+ */
+function handleFileUpload(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (file) {
+        const audioUrl = URL.createObjectURL(file);
+        const audioPlayer = document.getElementById('audioPlayer') as HTMLAudioElement;
+        if (audioPlayer) {
+            audioPlayer.src = audioUrl;
+            audioPlayer.style.display = 'block';
         }
-    }
-    
-    // 停止音頻流
-    if (audioStream) {
-        audioStream.getTracks().forEach(track => track.stop());
-        audioStream = null;
-    }
-    
-    // 重置狀態
-    lastProcessedResultIndex = 0;
-    
-    // 更新 UI
-    updateRecordingUI(false);
-    stopRecordingTimer();
-    
-    showStatus('錄音完成');
-    
-    // 如果有轉錄內容，提示可以進行分析
-    if (transcriptText.trim()) {
-        showStatus('錄音完成，可以開始 AI 分析');
+        
+        const transcript = document.getElementById('transcript');
+        if (transcript) {
+            transcript.textContent = '音頻文件已上傳，點擊下方按鈕進行AI分析';
+        }
+        
+        showStatus('音頻文件已上傳', 'success');
+        
+        // 清理之前的結果
+        currentResult = null;
+        hideShareSection();
     }
 }
 
+/**
+ * 更新錄音 UI
+ */
 function updateRecordingUI(recording: boolean) {
     const recordBtn = document.getElementById('recordBtn');
     const stopBtn = document.getElementById('stopBtn');
@@ -265,240 +369,87 @@ function updateRecordingUI(recording: boolean) {
         recordingSection?.classList.remove('recording');
         if (recordingStatus) recordingStatus.textContent = '點擊麥克風開始錄製會議';
     }
-}
-
-function startRecordingTimer() {
-    recordingTimer = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
-        const minutes = Math.floor(elapsed / 60);
-        const seconds = elapsed % 60;
-        
-        const recordingTime = document.getElementById('recordingTime');
-        if (recordingTime) {
-            recordingTime.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        }
-    }, 1000);
-}
-
-function stopRecordingTimer() {
-    if (recordingTimer) {
-        clearInterval(recordingTimer);
-        recordingTimer = null;
-    }
     
-    const recordingTime = document.getElementById('recordingTime');
-    if (recordingTime) {
-        recordingTime.textContent = '00:00';
-    }
+    // 重新檢查服務狀態
+    setTimeout(() => checkServiceStatus(), 1000);
 }
 
-// 文件上傳處理
-function handleFileUpload(event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (file) {
-        currentAudioBlob = file;
-        const audioUrl = URL.createObjectURL(file);
-        const audioPlayer = document.getElementById('audioPlayer') as HTMLAudioElement;
-        if (audioPlayer) {
-            audioPlayer.src = audioUrl;
-            audioPlayer.style.display = 'block';
-        }
-        
-        const transcript = document.getElementById('transcript');
-        if (transcript) {
-            transcript.textContent = '音頻文件已上傳，點擊下方按鈕進行AI分析';
-        }
-        
-        showStatus('音頻文件已上傳');
-    }
-}
-
-function formatTime(seconds: number): string {
-    const min = Math.floor(seconds / 60);
-    const sec = Math.floor(seconds % 60);
-    return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-}
-
-function displayTranscriptSegments(segments: TranscriptSegment[] | undefined) {
-    const transcriptElement = document.getElementById('transcript');
-    if (transcriptElement) {
-        if (segments && segments.length > 0) {
-            transcriptText = segments.map(seg => {
-                const timeDetails = (seg.start !== undefined && seg.end !== undefined) ? ` (${formatTime(seg.start)} - ${formatTime(seg.end)})` : '';
-                return `[${seg.speaker || 'SPEAKER'}]${timeDetails}: ${seg.text}`;
-            }).join('\n'); // Use escaped newline for joining
-            transcriptElement.textContent = transcriptText;
-        } else {
-            transcriptElement.textContent = '無轉錄內容返回。';
-            transcriptText = '';
-        }
-    }
-}
-
-async function analyzeTranscript() {
-    const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
-    const analyzeBtn = document.getElementById('analyzeBtn') as HTMLButtonElement;
-
-    if (!currentAudioBlob) {
-        showResult('請先錄音或上傳音頻文件', true);
-        showStatus('錯誤：未找到音頻數據', 'error');
-        return;
-    }
-
-    const selectedAnalysisType = analysisTypeElement.value;
-
-    hideShareSection();
-    analyzeBtn.disabled = true;
-    analyzeBtn.textContent = '🤖 正在處理音訊...';
-    showStatus('正在將音訊提交至後端處理，請稍候...');
-    showResult('<div class="loading">⏳ 音訊處理中，AI分析即將開始...</div>');
-    const transcriptElementForLoading = document.getElementById('transcript');
-    if (transcriptElementForLoading) transcriptElementForLoading.textContent = '等待後端轉錄...';
-    currentAnalysisResult = '';
-
-    try {
-        const response: ProcessingResponse = await apiClient.processAudio(currentAudioBlob, {
-            language: 'zh',
-            analysisType: selectedAnalysisType,
-            numSpeakers: undefined,
-            asyncProcessing: true,
-        });
-
-        if (response.status === 'completed') {
-            if (response.transcript) {
-                displayTranscriptSegments(response.transcript);
-            } else {
-                displayTranscriptSegments(undefined);
-                showStatus('後端未返回有效的轉錄稿', 'info');
-            }
-
-            if (response.analysis) {
-                currentAnalysisResult = response.analysis;
-                showResult(response.analysis);
-                showStatus('後端處理及分析完成！');
-                showShareSection();
-            } else {
-                showResult('後端未返回有效的分析結果。轉錄可能已完成。', true);
-                showStatus('分析部分失敗或未執行', 'error');
-            }
-        } else if (response.status === 'failed') {
-            const errorMsg = response.error || '未知後端錯誤';
-            showResult(`後端處理失敗: ${errorMsg}`, true);
-            showStatus(`後端處理失敗: ${errorMsg}`, 'error');
-            displayTranscriptSegments(undefined);
-        } else if (response.status === 'processing' && response.job_id) {
-            showResult(`處理仍在進行中 (Job ID: ${response.job_id}). EnhancedAPIClient should have handled polling; this might indicate a timeout or issue in client.`, true);
-            showStatus(`處理仍在進行中 (Job ID: ${response.job_id})`, 'info');
-        } else {
-            showResult(`收到未知的處理狀態: ${response.status}`, true);
-            showStatus(`未知狀態: ${response.status}`, 'error');
-            displayTranscriptSegments(undefined);
-        }
-
-    } catch (error) {
-        console.error('AI分析流程錯誤:', error);
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        showResult(`分析請求失敗：${errorMsg}`, true);
-        showStatus('分析請求失敗', 'error');
-        displayTranscriptSegments(undefined);
-    } finally {
-        analyzeBtn.disabled = false;
-        analyzeBtn.textContent = '🤖 開始AI分析';
-    }
-}
-
-// 分享功能 - 更新為最新的 Line API
+/**
+ * 分享到 Line
+ */
 function shareToLine() {
-    if (!currentAnalysisResult) {
+    if (!currentResult || !currentResult.analysis) {
         showToast('沒有可分享的分析結果', 'error');
         return;
     }
     
     try {
-        // 獲取分析類型
         const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
         const analysisTypeText = analysisTypeElement.options[analysisTypeElement.selectedIndex].text;
         
-        // 格式化分享內容
-        const shareContent = formatShareContent(currentAnalysisResult, analysisTypeText);
+        const shareContent = formatShareContent(currentResult.analysis, analysisTypeText);
         
-        // 檢查是否支援 Web Share API（優先使用）
+        // 使用 Web Share API 或 Line URL scheme
         if (navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-            // 使用 Web Share API（在支援的裝置上）
             navigator.share({
                 title: `AI會議分析 - ${analysisTypeText}`,
                 text: shareContent
             }).then(() => {
                 showToast('分享成功！', 'success');
             }).catch((error) => {
-                // 如果使用者取消分享，不顯示錯誤
                 if (error.name !== 'AbortError') {
-                    console.error('Web Share API 失敗:', error);
-                    // 降級到 Line URL scheme
                     fallbackToLineUrl(shareContent);
                 }
             });
         } else {
-            // 直接使用 Line URL scheme
             fallbackToLineUrl(shareContent);
         }
         
     } catch (error) {
-        console.error('分享到Line失敗:', error);
+        console.error('分享失敗:', error);
         showToast('分享失敗，請稍後再試', 'error');
     }
 }
 
-// Line URL scheme 分享（備用方案）
+/**
+ * Line URL scheme 分享
+ */
 function fallbackToLineUrl(shareContent: string) {
     try {
-        // 使用新的 Line 分享 URL 格式
         const encodedText = encodeURIComponent(shareContent);
-        
-        // 檢測設備類型
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
         
-        let lineUrl: string;
+        const lineUrl = isMobile ? 
+            `https://line.me/R/share?text=${encodedText}` :
+            `https://social-plugins.line.me/lineit/share?text=${encodedText}`;
         
-        if (isMobile) {
-            // 手機使用新的 Line URL 格式
-            lineUrl = `https://line.me/R/share?text=${encodedText}`;
-        } else {
-            // 桌面版使用 Line Social Plugins
-            // 只分享文字，不包含 URL
-            lineUrl = `https://social-plugins.line.me/lineit/share?text=${encodedText}`;
-        }
-        
-        // 開啟分享連結
         window.open(lineUrl, '_blank');
         showToast('正在打開Line分享...', 'success');
         
     } catch (error) {
-        console.error('Line URL scheme 分享失敗:', error);
+        console.error('Line 分享失敗:', error);
         showToast('分享失敗，請手動複製內容', 'error');
     }
 }
 
+/**
+ * 複製結果
+ */
 function copyResult() {
-    if (!currentAnalysisResult) {
+    if (!currentResult || !currentResult.analysis) {
         showToast('沒有可複製的分析結果', 'error');
         return;
     }
     
     try {
-        // 獲取分析類型
         const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
         const analysisTypeText = analysisTypeElement.options[analysisTypeElement.selectedIndex].text;
         
-        // 格式化複製內容（複製功能使用完整內容）
-        const copyContent = formatCopyContent(currentAnalysisResult, analysisTypeText);
+        const copyContent = formatCopyContent(currentResult.analysis, analysisTypeText);
         
-        // 複製到剪貼板
         navigator.clipboard.writeText(copyContent).then(() => {
             showToast('已複製到剪貼板！', 'success');
-        }).catch((error) => {
-            console.error('複製失敗:', error);
-            // 使用備用方法
+        }).catch(() => {
             fallbackCopyText(copyContent);
         });
         
@@ -508,7 +459,9 @@ function copyResult() {
     }
 }
 
-// 備用複製方法（適用於舊瀏覽器）
+/**
+ * 備用複製方法
+ */
 function fallbackCopyText(text: string) {
     const textArea = document.createElement('textarea');
     textArea.value = text;
@@ -529,27 +482,32 @@ function fallbackCopyText(text: string) {
     document.body.removeChild(textArea);
 }
 
-// 格式化分享內容（Line分享限制長度）
+/**
+ * 格式化分享內容
+ */
 function formatShareContent(result: string, analysisType: string): string {
     const currentTime = new Date().toLocaleString('zh-TW');
     
-    // 限制內容長度（Line 建議不超過 1000 字）
     let content = result;
     if (content.length > 800) {
-        content = content.substring(0, 800) + '...\n\n📄 完整內容請查看原始分析結果';
+        content = content.substring(0, 800) + '...\\n\\n📄 完整內容請查看原始分析結果';
     }
     
-    return `🤖 AI會議分析結果 - ${analysisType}\n\n${content}\n\n📅 分析時間：${currentTime}\n🔗 使用工具：好事AI 會議助手會議分析工具`;
+    return `🤖 AI會議分析結果 - ${analysisType}\\n\\n${content}\\n\\n📅 分析時間：${currentTime}\\n🔗 使用工具：AI 會議助手 v2.0`;
 }
 
-// 格式化複製內容（使用完整內容）
+/**
+ * 格式化複製內容
+ */
 function formatCopyContent(result: string, analysisType: string): string {
     const currentTime = new Date().toLocaleString('zh-TW');
     
-    return `🤖 AI會議分析結果 - ${analysisType}\n\n${result}\n\n📅 分析時間：${currentTime}\n🔗 使用工具：好事AI 會議助手會議分析工具`;
+    return `🤖 AI會議分析結果 - ${analysisType}\\n\\n${result}\\n\\n📅 分析時間：${currentTime}\\n🔗 使用工具：AI 會議助手 v2.0`;
 }
 
-// 顯示/隱藏分享區域
+/**
+ * 顯示/隱藏分享區域
+ */
 function showShareSection() {
     const shareSection = document.getElementById('shareSection');
     if (shareSection) {
@@ -564,12 +522,15 @@ function hideShareSection() {
     }
 }
 
-// 顯示提示訊息
-function showToast(message: string, type: 'success' | 'error' = 'success') {
+/**
+ * 顯示提示訊息
+ */
+function showToast(message: string, type: 'success' | 'error' | 'warning' = 'success') {
     const toast = document.getElementById('toast');
     if (toast) {
         toast.textContent = message;
-        toast.style.background = type === 'success' ? '#27ae60' : '#e74c3c';
+        toast.style.background = type === 'success' ? '#27ae60' : 
+                                 type === 'error' ? '#e74c3c' : '#f39c12';
         toast.classList.add('show');
         
         setTimeout(() => {
@@ -578,7 +539,10 @@ function showToast(message: string, type: 'success' | 'error' = 'success') {
     }
 }
 
-function showStatus(message: string, type: 'success' | 'error' | 'info' = 'info') {
+/**
+ * 顯示狀態
+ */
+function showStatus(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') {
     const status = document.getElementById('status');
     if (status) {
         status.textContent = message;
@@ -586,14 +550,47 @@ function showStatus(message: string, type: 'success' | 'error' | 'info' = 'info'
     }
 }
 
+/**
+ * 顯示結果
+ */
 function showResult(content: string, isError: boolean = false) {
     const result = document.getElementById('result');
     if (result) {
         result.innerHTML = isError ? 
             `<div class="error">${content}</div>` : 
-            `<div>${content.replace(/\n/g, '<br>')}</div>`;
+            `<div>${content.replace(/\\n/g, '<br>')}</div>`;
         result.style.display = 'block';
     }
+}
+
+/**
+ * 清理結果
+ */
+function clearResult() {
+    const result = document.getElementById('result');
+    if (result) {
+        result.innerHTML = '';
+        result.style.display = 'none';
+    }
+    
+    const transcript = document.getElementById('transcript');
+    if (transcript) {
+        transcript.textContent = '';
+    }
+    
+    const speakerInfo = document.getElementById('speakerInfo');
+    if (speakerInfo) {
+        speakerInfo.style.display = 'none';
+    }
+}
+
+/**
+ * 重新檢查服務
+ */
+async function recheckServices() {
+    showStatus('正在檢查服務狀態...', 'info');
+    await checkServiceStatus();
+    showToast('服務狀態已更新', 'success');
 }
 
 // 綁定全域函數
@@ -603,6 +600,7 @@ function showResult(content: string, isError: boolean = false) {
 (window as any).analyzeTranscript = analyzeTranscript;
 (window as any).shareToLine = shareToLine;
 (window as any).copyResult = copyResult;
+(window as any).recheckServices = recheckServices;
 
 // 當 DOM 載入完成時初始化
 if (document.readyState === 'loading') {
@@ -610,3 +608,8 @@ if (document.readyState === 'loading') {
 } else {
     init();
 }
+
+// 清理資源
+window.addEventListener('beforeunload', () => {
+    enhancedRecorder.cleanup();
+});
