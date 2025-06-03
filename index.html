@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>阿玩AI會議工具</title>
+    <title>🎤 阿玩AI語音會議分析工具</title>
     <style>
         * {
             margin: 0;
@@ -26,7 +26,7 @@
             border-radius: 20px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.1);
             padding: 40px;
-            max-width: 800px;
+            max-width: 900px;
             width: 100%;
         }
         
@@ -40,6 +40,106 @@
             -webkit-text-fill-color: transparent;
         }
         
+        .recording-section {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            border: 2px dashed #ddd;
+        }
+        
+        .recording-section.recording {
+            border-color: #e74c3c;
+            background: #ffe6e6;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+        
+        .record-btn {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: none;
+            font-size: 3em;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin: 20px;
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            color: white;
+            box-shadow: 0 10px 20px rgba(231, 76, 60, 0.3);
+        }
+        
+        .record-btn:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 25px rgba(231, 76, 60, 0.4);
+        }
+        
+        .record-btn.recording {
+            background: linear-gradient(45deg, #27ae60, #2ecc71);
+            animation: recordPulse 1s infinite;
+        }
+        
+        @keyframes recordPulse {
+            0% { box-shadow: 0 10px 20px rgba(39, 174, 96, 0.3); }
+            50% { box-shadow: 0 10px 30px rgba(39, 174, 96, 0.6); }
+            100% { box-shadow: 0 10px 20px rgba(39, 174, 96, 0.3); }
+        }
+        
+        .stop-btn {
+            width: 80px;
+            height: 80px;
+            border-radius: 15px;
+            border: none;
+            font-size: 2em;
+            cursor: pointer;
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            color: white;
+            margin: 0 10px;
+            transition: all 0.3s;
+        }
+        
+        .stop-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .recording-status {
+            margin: 20px 0;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .recording-time {
+            font-size: 24px;
+            color: #e74c3c;
+            margin: 10px 0;
+        }
+        
+        .audio-player {
+            margin: 20px 0;
+            width: 100%;
+        }
+        
+        .transcript-section {
+            margin: 30px 0;
+        }
+        
+        .transcript-box {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            min-height: 150px;
+            font-size: 16px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+        
         .input-section {
             margin-bottom: 30px;
         }
@@ -51,7 +151,7 @@
             color: #555;
         }
         
-        textarea, input, select {
+        select {
             width: 100%;
             padding: 15px;
             border: 2px solid #e0e0e0;
@@ -60,17 +160,12 @@
             transition: border-color 0.3s;
         }
         
-        textarea:focus, input:focus, select:focus {
+        select:focus {
             outline: none;
             border-color: #667eea;
         }
         
-        textarea {
-            height: 200px;
-            resize: vertical;
-        }
-        
-        button {
+        button.analyze-btn {
             background: linear-gradient(45deg, #667eea, #764ba2);
             color: white;
             border: none;
@@ -83,11 +178,11 @@
             margin-bottom: 20px;
         }
         
-        button:hover {
+        button.analyze-btn:hover {
             transform: translateY(-2px);
         }
         
-        button:disabled {
+        button.analyze-btn:disabled {
             opacity: 0.6;
             cursor: not-allowed;
             transform: none;
@@ -119,39 +214,81 @@
             font-size: 14px;
             color: #666;
         }
+        
+        .controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .file-upload {
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .file-input {
+            display: none;
+        }
+        
+        .file-label {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #3498db;
+            color: white;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .file-label:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🤖 阿玩AI會議工具</h1>
+        <h1>🎤 阿玩AI語音會議分析工具</h1>
         
         <div class="status" id="status">準備就緒</div>
         
-        <div class="input-section">
-            <label for="meetingContent">會議內容或討論記錄：</label>
-            <textarea 
-                id="meetingContent" 
-                placeholder="請輸入會議記錄、討論內容或任何需要AI分析的文字...\n\n範例：\n- 今天討論了新產品功能\n- 決定下週開始開發\n- 需要市場調研報告"
-            ></textarea>
+        <div class="recording-section" id="recordingSection">
+            <div class="recording-status" id="recordingStatus">點擊麥克風開始錄製會議</div>
+            <div class="recording-time" id="recordingTime">00:00</div>
+            
+            <div class="controls">
+                <button class="record-btn" id="recordBtn" onclick="toggleRecording()">🎤</button>
+                <button class="stop-btn" id="stopBtn" onclick="stopRecording()" style="display: none;">⏹️</button>
+            </div>
+            
+            <audio class="audio-player" id="audioPlayer" controls style="display: none;"></audio>
+            
+            <div class="file-upload">
+                <label for="audioFile" class="file-label">📁 或上傳音頻文件</label>
+                <input type="file" id="audioFile" class="file-input" accept="audio/*" onchange="handleFileUpload(event)">
+            </div>
+        </div>
+        
+        <div class="transcript-section">
+            <label for="transcript">📝 語音轉文字結果：</label>
+            <div class="transcript-box" id="transcript">等待錄音...</div>
         </div>
         
         <div class="input-section">
-            <label for="analysisType">分析類型：</label>
+            <label for="analysisType">🔍 分析類型：</label>
             <select id="analysisType">
                 <option value="summary">會議摘要</option>
                 <option value="action_items">行動項目</option>
                 <option value="key_decisions">重要決策</option>
                 <option value="follow_up">後續追蹤</option>
-                <option value="custom">自定義分析</option>
+                <option value="participants">參與者分析</option>
+                <option value="sentiment">情緒分析</option>
             </select>
         </div>
         
-        <div class="input-section" id="customPromptSection" style="display: none;">
-            <label for="customPrompt">自定義提示：</label>
-            <input type="text" id="customPrompt" placeholder="請輸入您想要的分析角度...">
-        </div>
-        
-        <button id="analyzeBtn" onclick="analyzeContent()">🚀 開始分析</button>
+        <button class="analyze-btn" id="analyzeBtn" onclick="analyzeTranscript()">🤖 開始AI分析</button>
         
         <div id="result" class="result" style="display: none;"></div>
     </div>
