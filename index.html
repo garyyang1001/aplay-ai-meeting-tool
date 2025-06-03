@@ -313,7 +313,7 @@
             border-radius: 12px;
             padding: 20px;
             border-left: 4px solid #667eea;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             max-height: 300px;
             overflow-y: auto;
         }
@@ -329,6 +329,57 @@
             color: #667eea;
             font-style: italic;
             padding: 20px;
+        }
+        
+        /* 分享按鈕 */
+        .share-section {
+            display: none;
+            margin-bottom: 20px;
+        }
+        
+        .share-section.show {
+            display: block;
+        }
+        
+        .share-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        
+        .share-btn {
+            flex: 1;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .share-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .line-share-btn {
+            background: linear-gradient(45deg, #00C300, #00B300);
+            color: white;
+            box-shadow: 0 4px 12px rgba(0, 195, 0, 0.3);
+        }
+        
+        .copy-btn {
+            background: linear-gradient(45deg, #6c757d, #5a6268);
+            color: white;
+            box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+        }
+        
+        .share-btn:hover {
+            transform: translateY(-2px);
         }
         
         /* 音頻播放器 */
@@ -368,6 +419,11 @@
                 padding: 16px;
                 font-size: 16px;
             }
+            
+            .share-btn {
+                padding: 12px 16px;
+                font-size: 14px;
+            }
         }
         
         @media (max-width: 360px) {
@@ -385,6 +441,15 @@
                 height: 120px;
                 max-height: 140px;
                 padding: 12px;
+            }
+            
+            .share-buttons {
+                flex-direction: column;
+            }
+            
+            .share-btn {
+                padding: 12px;
+                font-size: 14px;
             }
         }
         
@@ -409,6 +474,26 @@
         .transcript-box::-webkit-scrollbar-thumb:hover,
         .result::-webkit-scrollbar-thumb:hover {
             background: #a8a8a8;
+        }
+        
+        /* 成功提示 */
+        .toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #27ae60;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-weight: 600;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .toast.show {
+            opacity: 1;
         }
     </style>
 </head>
@@ -464,7 +549,22 @@
         
         <!-- 結果顯示 -->
         <div id="result" class="result" style="display: none;"></div>
+        
+        <!-- 分享功能 -->
+        <div class="share-section" id="shareSection">
+            <div class="share-buttons">
+                <button class="share-btn line-share-btn" onclick="shareToLine()">
+                    📱 分享到Line
+                </button>
+                <button class="share-btn copy-btn" onclick="copyResult()">
+                    📋 複製結果
+                </button>
+            </div>
+        </div>
     </div>
+    
+    <!-- 成功提示 -->
+    <div class="toast" id="toast"></div>
     
     <script type="module" src="/src/main.ts"></script>
 </body>
