@@ -1,7 +1,7 @@
-import { OpenRouterAPI } from './api';
+import { apiClient, ProcessingResponse, TranscriptSegment } from './enhanced-api';
 
 // 全域變數
-let api: OpenRouterAPI;
+let currentAudioBlob: Blob | null = null;
 let mediaRecorder: MediaRecorder | null = null;
 let audioStream: MediaStream | null = null;
 let recordingStartTime: number = 0;
@@ -15,15 +15,6 @@ let currentAnalysisResult = ''; // 儲存當前分析結果
 // 初始化
 function init() {
     console.log('阿玩AI語音會議分析工具啟動中...');
-    
-    // 檢查環境變數
-    const apiKey = (import.meta as any).env.VITE_OPENROUTER_API_KEY as string;
-    if (!apiKey) {
-        showStatus('警告：未設定 OpenRouter API Key', 'error');
-        return;
-    }
-    
-    api = new OpenRouterAPI(apiKey);
     
     // 檢查瀏覽器支援
     checkBrowserSupport();
@@ -140,6 +131,7 @@ async function toggleRecording() {
 }
 
 async function startRecording() {
+    currentAudioBlob = null;
     try {
         // 重置轉錄文字和索引
         transcriptText = '';
@@ -181,6 +173,7 @@ async function startRecording() {
         
         mediaRecorder.onstop = () => {
             const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            currentAudioBlob = audioBlob;
             const audioUrl = URL.createObjectURL(audioBlob);
             
             const audioPlayer = document.getElementById('audioPlayer') as HTMLAudioElement;
@@ -305,6 +298,7 @@ function stopRecordingTimer() {
 function handleFileUpload(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (file) {
+        currentAudioBlob = file;
         const audioUrl = URL.createObjectURL(file);
         const audioPlayer = document.getElementById('audioPlayer') as HTMLAudioElement;
         if (audioPlayer) {
@@ -314,184 +308,105 @@ function handleFileUpload(event: Event) {
         
         const transcript = document.getElementById('transcript');
         if (transcript) {
-            transcript.textContent = '已上傳音頻文件，請手動輸入轉錄文字或使用其他語音轉文字服務';
+            transcript.textContent = '音頻文件已上傳，點擊下方按鈕進行AI分析';
         }
         
         showStatus('音頻文件已上傳');
     }
 }
 
-// AI 分析功能 - 使用完整內容
+function formatTime(seconds: number): string {
+    const min = Math.floor(seconds / 60);
+    const sec = Math.floor(seconds % 60);
+    return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+}
+
+function displayTranscriptSegments(segments: TranscriptSegment[] | undefined) {
+    const transcriptElement = document.getElementById('transcript');
+    if (transcriptElement) {
+        if (segments && segments.length > 0) {
+            transcriptText = segments.map(seg => {
+                const timeDetails = (seg.start !== undefined && seg.end !== undefined) ? ` (${formatTime(seg.start)} - ${formatTime(seg.end)})` : '';
+                return `[${seg.speaker || 'SPEAKER'}]${timeDetails}: ${seg.text}`;
+            }).join('\n'); // Use escaped newline for joining
+            transcriptElement.textContent = transcriptText;
+        } else {
+            transcriptElement.textContent = '無轉錄內容返回。';
+            transcriptText = '';
+        }
+    }
+}
+
 async function analyzeTranscript() {
-    const transcript = document.getElementById('transcript')?.textContent?.trim();
     const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
     const analyzeBtn = document.getElementById('analyzeBtn') as HTMLButtonElement;
-    
-    // 清理轉錄文字，移除臨時文字標記
-    const cleanTranscript = transcript?.replace(/\([^)]*\)/g, '').trim();
-    
-    if (!cleanTranscript || cleanTranscript === '等待錄音...' || cleanTranscript.includes('已上傳音頻文件')) {
-        showResult('請先錄音或確保語音轉文字完成', true);
+
+    if (!currentAudioBlob) {
+        showResult('請先錄音或上傳音頻文件', true);
+        showStatus('錯誤：未找到音頻數據', 'error');
         return;
     }
-    
-    if (!api) {
-        showResult('API 未初始化，請檢查設定', true);
-        return;
-    }
-    
-    const analysisType = analysisTypeElement.value;
-    
-    // 隱藏分享區域
+
+    const selectedAnalysisType = analysisTypeElement.value;
+
     hideShareSection();
-    
-    // 檢查內容長度並給予提示
-    const wordCount = cleanTranscript.length;
-    if (wordCount > 10000) {
-        showStatus(`正在分析長文本內容 (${wordCount} 字)，請耐心等候...`);
-    }
-    
-    // 顯示載入狀態
     analyzeBtn.disabled = true;
-    analyzeBtn.textContent = '🤔 AI思考中...';
-    showStatus('正在分析中，請稍候...');
-    showResult('<div class="loading">⏳ AI正在分析您的會議內容...</div>');
-    
+    analyzeBtn.textContent = '🤖 正在處理音訊...';
+    showStatus('正在將音訊提交至後端處理，請稍候...');
+    showResult('<div class="loading">⏳ 音訊處理中，AI分析即將開始...</div>');
+    const transcriptElementForLoading = document.getElementById('transcript');
+    if (transcriptElementForLoading) transcriptElementForLoading.textContent = '等待後端轉錄...';
+    currentAnalysisResult = '';
+
     try {
-        const prompt = getPromptTemplate(analysisType);
-        
-        // 使用完整內容進行AI分析（不再限制800字）
-        const fullPrompt = `${prompt}\n\n會議錄音轉錄內容：\n${cleanTranscript}`;
-        
-        // 檢查是否超過模型限制（預估）
-        const estimatedTokens = estimateTokenCount(fullPrompt);
-        if (estimatedTokens > 120000) { // 保留一些空間給回應
-            // 如果超過限制，分段處理或截取
-            const truncatedTranscript = truncateText(cleanTranscript, 100000); // 保留大部分內容
-            const truncatedPrompt = `${prompt}\n\n會議錄音轉錄內容（由於內容過長，已自動截取前 100,000 字）：\n${truncatedTranscript}`;
-            
-            showStatus(`內容過長，正在分析前 100,000 字...`);
-            const response = await api.chat(truncatedPrompt);
-            currentAnalysisResult = response;
-            showResult(response);
-        } else {
-            // 使用完整內容
-            const response = await api.chat(fullPrompt);
-            currentAnalysisResult = response;
-            showResult(response);
-        }
-        
-        showStatus('分析完成！');
-        
-        // 顯示分享區域
-        showShareSection();
-        
-    } catch (error) {
-        console.error('分析錯誤:', error);
-        
-        // 特殊處理超長內容錯誤
-        if (error instanceof Error && error.message.includes('token')) {
-            showResult('內容過長，正在嘗試分段分析...', true);
-            try {
-                // 嘗試分段分析
-                const segments = splitTextIntoSegments(cleanTranscript, 50000);
-                const analysisResults = [];
-                
-                for (let i = 0; i < segments.length; i++) {
-                    showStatus(`正在分析第 ${i + 1}/${segments.length} 段...`);
-                    const segmentPrompt = `${getPromptTemplate(analysisType)}\n\n會議錄音轉錄內容（第${i + 1}段，共${segments.length}段）：\n${segments[i]}`;
-                    const segmentResult = await api.chat(segmentPrompt);
-                    analysisResults.push(`=== 第${i + 1}段分析 ===\n${segmentResult}`);
-                }
-                
-                // 合併結果
-                const finalResult = analysisResults.join('\n\n');
-                currentAnalysisResult = finalResult;
-                showResult(finalResult);
-                showStatus('分段分析完成！');
-                showShareSection();
-                
-            } catch (segmentError) {
-                showResult(`分析失敗：${segmentError instanceof Error ? segmentError.message : '內容過長，請嘗試較短的錄音'}`, true);
-                showStatus('分析失敗', 'error');
+        const response: ProcessingResponse = await apiClient.processAudio(currentAudioBlob, {
+            language: 'zh',
+            analysisType: selectedAnalysisType,
+            numSpeakers: undefined,
+            asyncProcessing: true,
+        });
+
+        if (response.status === 'completed') {
+            if (response.transcript) {
+                displayTranscriptSegments(response.transcript);
+            } else {
+                displayTranscriptSegments(undefined);
+                showStatus('後端未返回有效的轉錄稿', 'info');
             }
+
+            if (response.analysis) {
+                currentAnalysisResult = response.analysis;
+                showResult(response.analysis);
+                showStatus('後端處理及分析完成！');
+                showShareSection();
+            } else {
+                showResult('後端未返回有效的分析結果。轉錄可能已完成。', true);
+                showStatus('分析部分失敗或未執行', 'error');
+            }
+        } else if (response.status === 'failed') {
+            const errorMsg = response.error || '未知後端錯誤';
+            showResult(`後端處理失敗: ${errorMsg}`, true);
+            showStatus(`後端處理失敗: ${errorMsg}`, 'error');
+            displayTranscriptSegments(undefined);
+        } else if (response.status === 'processing' && response.job_id) {
+            showResult(`處理仍在進行中 (Job ID: ${response.job_id}). EnhancedAPIClient should have handled polling; this might indicate a timeout or issue in client.`, true);
+            showStatus(`處理仍在進行中 (Job ID: ${response.job_id})`, 'info');
         } else {
-            showResult(`分析失敗：${error instanceof Error ? error.message : '未知錯誤'}`, true);
-            showStatus('分析失敗', 'error');
+            showResult(`收到未知的處理狀態: ${response.status}`, true);
+            showStatus(`未知狀態: ${response.status}`, 'error');
+            displayTranscriptSegments(undefined);
         }
+
+    } catch (error) {
+        console.error('AI分析流程錯誤:', error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        showResult(`分析請求失敗：${errorMsg}`, true);
+        showStatus('分析請求失敗', 'error');
+        displayTranscriptSegments(undefined);
     } finally {
         analyzeBtn.disabled = false;
         analyzeBtn.textContent = '🤖 開始AI分析';
     }
-}
-
-// 估算 token 數量（粗略估算）
-function estimateTokenCount(text: string): number {
-    // 中文大約 1.5 字符 = 1 token，英文大約 4 字符 = 1 token
-    const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
-    const otherChars = text.length - chineseChars;
-    
-    return Math.ceil(chineseChars / 1.5) + Math.ceil(otherChars / 4);
-}
-
-// 截取文字到指定長度
-function truncateText(text: string, maxLength: number): string {
-    if (text.length <= maxLength) return text;
-    
-    // 在句號或換行處截取，避免截斷句子
-    const truncated = text.substring(0, maxLength);
-    const lastPeriod = Math.max(truncated.lastIndexOf('。'), truncated.lastIndexOf('\n'));
-    
-    if (lastPeriod > maxLength * 0.8) {
-        return truncated.substring(0, lastPeriod + 1);
-    }
-    
-    return truncated;
-}
-
-// 將文字分段
-function splitTextIntoSegments(text: string, segmentLength: number): string[] {
-    if (text.length <= segmentLength) return [text];
-    
-    const segments = [];
-    let currentPosition = 0;
-    
-    while (currentPosition < text.length) {
-        let endPosition = currentPosition + segmentLength;
-        
-        if (endPosition >= text.length) {
-            // 最後一段
-            segments.push(text.substring(currentPosition));
-            break;
-        }
-        
-        // 尋找合適的分割點（句號或換行）
-        const searchStart = Math.max(currentPosition, endPosition - 1000);
-        const segment = text.substring(searchStart, endPosition);
-        const lastPeriod = Math.max(segment.lastIndexOf('。'), segment.lastIndexOf('\n'));
-        
-        if (lastPeriod > 0) {
-            endPosition = searchStart + lastPeriod + 1;
-        }
-        
-        segments.push(text.substring(currentPosition, endPosition));
-        currentPosition = endPosition;
-    }
-    
-    return segments;
-}
-
-function getPromptTemplate(type: string): string {
-    const templates = {
-        summary: '請為以下會議錄音轉錄內容提供一個簡潔明確的摘要，包含主要討論點和結論：',
-        action_items: '請從以下會議錄音轉錄內容中提取出所有需要執行的行動項目，包含負責人和時間點：',
-        key_decisions: '請列出以下會議錄音轉錄內容中做出的所有重要決策和決定：',
-        follow_up: '請分析以下會議錄音轉錄內容，並建議需要後續追蹤的事項和時間點：',
-        participants: '請分析以下會議錄音轉錄內容，識別參與者並總結各人的主要觀點和貢獻：',
-        sentiment: '請分析以下會議錄音轉錄內容的整體情緒和氣氛，包含正面、負面或中性的討論：'
-    };
-    
-    return templates[type as keyof typeof templates] || templates.summary;
 }
 
 // 分享功能 - 更新為最新的 Line API

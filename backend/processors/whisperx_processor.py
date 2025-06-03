@@ -19,8 +19,9 @@ class WhisperXProcessor:
     def __init__(self, 
                  model_size: str = "base",
                  device: str = "auto",
-                 compute_type: str = "float16",
-                 language: str = "zh"):
+                 compute_type: str = "float16", # Keep a default here in case main.py doesn't pass
+                 language: str = "zh",
+                 batch_size: int = 16): # Keep a default here
         """
         初始化 WhisperX 處理器
         
@@ -29,12 +30,13 @@ class WhisperXProcessor:
             device: 計算設備 ("cpu", "cuda", "auto")
             compute_type: 計算精度 ("float16", "float32", "int8")
             language: 語言代碼 ("zh", "en", "auto")
+            batch_size: 批次大小
         """
         self.model_size = model_size
         self.device = self._get_device(device)
-        self.compute_type = compute_type
+        self.compute_type = compute_type # Use the passed value
         self.language = language
-        self.batch_size = 16
+        self.batch_size = batch_size # Use the passed value
         
         # 檢查 HuggingFace Token
         self.hf_token = os.getenv("HF_TOKEN")
@@ -147,14 +149,38 @@ class WhisperXProcessor:
                 language=process_language if process_language != "auto" else None
             )
             
-            detected_language = result.get("language", process_language)
-            logger.info(f"Detected language: {detected_language}")
+            # Use the language detected by Whisper, or fall back to process_language if not available in result.
+            detected_language_by_whisper = result.get("language")
+            logger.info(f"Transcription complete. Language from transcribe() call: {process_language}, Detected by Whisper: {detected_language_by_whisper}")
+
+            # For alignment, we need a specific language model.
+            # self.language is the language the current self.align_model is configured for.
+            # detected_language_by_whisper is what Whisper actually outputted.
             
-            # 3. 對齊時間戳（如果有對齊模型）
+            can_align = False
             if self.align_model and self.align_metadata:
-                logger.info("Aligning timestamps...")
+                if detected_language_by_whisper and detected_language_by_whisper != "auto":
+                    if self.language == detected_language_by_whisper:
+                        can_align = True
+                        logger.info(f"Attempting alignment with model for '{self.language}'.")
+                    else:
+                        logger.warning(
+                            f"Alignment model language ('{self.language}') "
+                            f"does not match detected transcript language ('{detected_language_by_whisper}'). "
+                            f"Skipping alignment."
+                        )
+                else:
+                    logger.warning(
+                        f"Whisper did not detect a specific language (result: '{detected_language_by_whisper}'). "
+                        f"Skipping alignment as a specific alignment model cannot be chosen."
+                    )
+            else:
+                logger.info("Alignment model not loaded. Skipping alignment.")
+
+            if can_align:
                 try:
-                    result = whisperx.align(
+                    logger.info("Aligning timestamps...")
+                    aligned_result = whisperx.align(
                         result["segments"], 
                         self.align_model, 
                         self.align_metadata, 
@@ -162,8 +188,18 @@ class WhisperXProcessor:
                         self.device, 
                         return_char_alignments=False
                     )
+                    # Preserve all top-level keys from result, update 'segments' and potentially 'word_segments'
+                    result.update(aligned_result)
+                    logger.info("Alignment successful.")
                 except Exception as e:
-                    logger.warning(f"Alignment failed: {str(e)}")
+                    logger.warning(f"Alignment failed: {str(e)}. Proceeding with unaligned segments.")
+
+            # Ensure 'segments' key always exists, even if it's the original unaligned one
+            if "segments" not in result: # Should not happen if model.transcribe worked
+                result["segments"] = []
+
+            # The detected_language for metadata should be what Whisper determined.
+            metadata_language = detected_language_by_whisper or process_language # Fallback if whisper gives nothing
             
             # 4. 說話者辨識
             diarization_info = None
@@ -210,7 +246,7 @@ class WhisperXProcessor:
                 diarization_info, 
                 audio_duration, 
                 processing_time,
-                detected_language
+                metadata_language # Pass the refined language here
             )
             
             # 7. 清理記憶體
@@ -258,7 +294,7 @@ class WhisperXProcessor:
                       diarization_info: Optional[Dict],
                       audio_duration: float,
                       processing_time: Optional[float],
-                      detected_language: str) -> Dict[str, Any]:
+                      actual_transcribed_language: str) -> Dict[str, Any]:
         """格式化處理結果"""
         
         # 整理轉錄片段
@@ -292,7 +328,7 @@ class WhisperXProcessor:
                 "audio_duration": round(audio_duration, 2),
                 "processing_time": round(processing_time, 2) if processing_time else None,
                 "real_time_factor": round(processing_time / audio_duration, 2) if processing_time and audio_duration > 0 else None,
-                "detected_language": detected_language,
+                "detected_language": actual_transcribed_language,
                 "model_size": self.model_size,
                 "device": self.device
             }
@@ -310,23 +346,17 @@ class WhisperXProcessor:
             torch.cuda.empty_cache()
         gc.collect()
     
-    async def process_audio_file(self, file_content: bytes, filename: str, **kwargs) -> Dict[str, Any]:
+    async def process_audio_file(self, audio_file_path: str, **kwargs) -> Dict[str, Any]:
         """處理上傳的音訊檔案"""
-        # 創建臨時檔案
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(filename).suffix) as tmp_file:
-            tmp_file.write(file_content)
-            tmp_path = tmp_file.name
-        
+        # The audio_file_path is now managed by FileHandler (created and will be cleaned up by it)
         try:
             # 處理音訊
-            result = await self.process_meeting_audio(tmp_path, **kwargs)
+            result = await self.process_meeting_audio(audio_file_path, **kwargs)
             return result
-        finally:
-            # 清理臨時檔案
-            try:
-                os.unlink(tmp_path)
-            except:
-                pass
+        except Exception as e:
+            logger.error(f"Error processing audio file {audio_file_path} in WhisperXProcessor: {e}")
+            raise # Re-throw the exception to be handled by the caller in main.py
+        # Finally block for cleanup is removed as FileHandler manages the lifecycle of the file.
     
     def get_model_info(self) -> Dict[str, Any]:
         """獲取模型資訊"""

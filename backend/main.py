@@ -16,9 +16,11 @@ from datetime import datetime
 import logging
 import json
 
+from pathlib import Path # Added for file size
 # 自定義處理器
 from processors.whisperx_processor import WhisperXProcessor
 from processors.openrouter_client import OpenRouterClient
+from utils.file_handler import FileHandler
 
 # 設置日誌
 logging.basicConfig(
@@ -54,9 +56,20 @@ app = FastAPI(
 )
 
 # CORS 設置
+cors_origins_str = os.getenv("CORS_ORIGINS")
+allowed_origins = []
+if cors_origins_str:
+    allowed_origins = [origin.strip() for origin in cors_origins_str.split(',')]
+    logger.info(f"CORS allowed origins configured from env: {allowed_origins}")
+else:
+    # Default behavior if CORS_ORIGINS is not set
+    allowed_origins = ["*"]
+    logger.warning("CORS_ORIGINS environment variable not set. Defaulting to allow all origins ('*'). "
+                     "For production, it is highly recommended to set specific origins.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生產環境應限制特定域名
+    allow_origins=allowed_origins, # Use the dynamically configured list
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,6 +78,7 @@ app.add_middleware(
 # 全域變數
 processor: Optional[WhisperXProcessor] = None
 openrouter: Optional[OpenRouterClient] = None
+file_handler_instance: Optional[FileHandler] = None # For FileHandler
 processing_jobs = {}
 
 @app.get("/")
@@ -150,90 +164,88 @@ async def process_audio(
     
     if not processor or not openrouter:
         raise HTTPException(status_code=503, detail="服務尚未初始化完成")
-    
+    if not file_handler_instance:
+        raise HTTPException(status_code=503, detail="FileHandler service is not initialized.")
+
     job_id = str(uuid.uuid4())
-    
+    saved_file_path = None # Initialize here to ensure it's available for finally block if sync
+
     try:
-        # 驗證檔案
-        if not file.filename:
-            raise HTTPException(status_code=400, detail="檔案名稱不能為空")
-        
-        # 檢查檔案格式
-        allowed_extensions = {'.mp3', '.wav', '.m4a', '.webm', '.ogg', '.flac', '.opus'}
-        file_ext = os.path.splitext(file.filename.lower())[1]
-        if file_ext not in allowed_extensions:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"不支援的檔案格式 {file_ext}。支援格式：{', '.join(allowed_extensions)}"
-            )
-        
-        # 讀取檔案內容
-        file_content = await file.read()
-        file_size = len(file_content)
-        
-        # 檢查檔案大小 (預設 100MB)
-        max_size = int(os.getenv("MAX_FILE_SIZE", "100")) * 1024 * 1024
-        if file_size > max_size:
-            raise HTTPException(
-                status_code=413, 
-                detail=f"檔案大小 {file_size//1024//1024}MB 超過限制 {max_size//1024//1024}MB"
-            )
-        
-        # 初始化任務狀態
+        # 初始化任務狀態 (early, before file saving, to track job_id)
         start_time = datetime.now()
         processing_jobs[job_id] = {
             "status": "processing",
-            "step": "preparing",
-            "progress": 5,
+            "step": "uploading",
+            "progress": 1, # Initial progress
             "start_time": start_time,
-            "filename": file.filename,
-            "file_size": file_size,
+            "original_filename": file.filename, # Store original filename
             "language": language,
             "analysis_type": analysis_type
         }
-        
-        logger.info(f"開始處理音訊: {file.filename} ({file_size} bytes), Job: {job_id}")
-        
+
+        logger.info(f"開始處理音訊 (Job: {job_id}): {file.filename}")
+
+        # Save file using FileHandler
+        try:
+            saved_file_path = await file_handler_instance.save_uploaded_file(file, job_id)
+            file_size = Path(saved_file_path).stat().st_size
+            processing_jobs[job_id].update({
+                "saved_file_path": saved_file_path,
+                "file_size": file_size,
+                "step": "preparing",
+                "progress": 5
+            })
+            logger.info(f"檔案已儲存: {saved_file_path} (Job: {job_id}), 大小: {file_size} bytes")
+
+        except ValueError as ve: # Catch validation errors from FileHandler
+            logger.error(f"檔案驗證錯誤 (Job {job_id}): {ve}")
+            processing_jobs[job_id].update({"status": "failed", "error": str(ve), "progress": 0})
+            raise HTTPException(status_code=400, detail=str(ve))
+        except RuntimeError as re: # Catch storage errors from FileHandler
+            logger.error(f"檔案儲存錯誤 (Job {job_id}): {re}")
+            processing_jobs[job_id].update({"status": "failed", "error": str(re), "progress": 0})
+            raise HTTPException(status_code=500, detail=str(re))
+        except Exception as e: # Catch any other unexpected error during file save
+            logger.error(f"儲存檔案時發生未知錯誤 (Job {job_id}): {e}")
+            processing_jobs[job_id].update({"status": "failed", "error": f"儲存檔案時發生未知錯誤: {e}", "progress": 0})
+            raise HTTPException(status_code=500, detail=f"儲存檔案時發生未知錯誤: {e}")
+
         if async_processing:
             # 背景處理
             background_tasks.add_task(
                 process_audio_background,
-                job_id, file_content, file.filename, language, analysis_type,
+                job_id, saved_file_path, language, analysis_type,
                 num_speakers, min_speakers, max_speakers
             )
-            
-            return ProcessingResponse(
-                job_id=job_id,
-                status="processing"
-            )
+            return ProcessingResponse(job_id=job_id, status="processing")
         else:
             # 同步處理
             result = await process_audio_sync(
-                job_id, file_content, file.filename, language, analysis_type,
+                job_id, saved_file_path, language, analysis_type,
                 num_speakers, min_speakers, max_speakers
             )
             return result
             
-    except HTTPException:
-        # 重新拋出 HTTP 異常
-        processing_jobs[job_id] = {
-            "status": "failed",
-            "error": "檔案驗證失敗"
-        }
+    except HTTPException as http_exc:
+        # Log if not already properly logged by specific file handling errors
+        if "error" not in processing_jobs.get(job_id, {}):
+             processing_jobs[job_id] = {**processing_jobs.get(job_id, {}), "status": "failed", "error": http_exc.detail}
         raise
     except Exception as e:
-        logger.error(f"處理音訊時發生錯誤: {e}")
-        processing_jobs[job_id] = {
-            "status": "failed",
-            "error": str(e),
-            "progress": 0
-        }
+        logger.error(f"處理音訊時發生主流程錯誤 (Job {job_id}): {e}")
+        processing_jobs[job_id] = {**processing_jobs.get(job_id, {}), "status": "failed", "error": str(e), "progress": 0}
         raise HTTPException(status_code=500, detail=f"處理失敗: {str(e)}")
+    finally:
+        # Synchronous cleanup for synchronous calls.
+        # For async, process_audio_sync (called by background task) handles its own cleanup.
+        if not async_processing and saved_file_path and file_handler_instance:
+            logger.info(f"同步處理完成，開始清理檔案 (Job {job_id}): {saved_file_path}")
+            file_handler_instance.cleanup_temp_file(saved_file_path)
+
 
 async def process_audio_sync(
     job_id: str, 
-    file_content: bytes, 
-    filename: str, 
+    audio_file_path: str,
     language: str, 
     analysis_type: str,
     num_speakers: Optional[int] = None,
@@ -241,18 +253,16 @@ async def process_audio_sync(
     max_speakers: Optional[int] = None
 ) -> ProcessingResponse:
     """同步處理音訊"""
-    
     try:
         # 更新狀態：開始轉錄
         processing_jobs[job_id]["step"] = "transcribing"
         processing_jobs[job_id]["progress"] = 20
         
-        logger.info(f"開始 WhisperX 轉錄: {job_id}")
+        logger.info(f"開始 WhisperX 轉錄 (Job: {job_id})")
         
         # WhisperX 處理
         transcript_result = await processor.process_audio_file(
-            file_content=file_content,
-            filename=filename,
+            audio_file_path=audio_file_path, # Pass path
             language=language,
             num_speakers=num_speakers,
             min_speakers=min_speakers,
@@ -300,18 +310,28 @@ async def process_audio_sync(
         
     except Exception as e:
         # 處理失敗
-        processing_jobs[job_id] = {
-            **processing_jobs[job_id],
+        processing_jobs[job_id].update({
             "status": "failed",
             "error": str(e),
-            "progress": 0
-        }
-        raise
+            "progress": 0 # Reset progress on failure
+        })
+        logger.error(f"同步音訊處理失敗 (Job {job_id}): {e}")
+        raise # Re-raise to be caught by the main endpoint or background task handler
+    finally:
+        # Cleanup is handled by the caller of process_audio_sync if it's a direct sync call,
+        # or here if it's part of a background task.
+        # For this structure, if called by background task, it cleans up.
+        # If called by sync route, the route's finally block cleans up.
+        # To ensure cleanup for background tasks specifically:
+        if asyncio.get_event_loop().is_running() and any(task.get_name() == job_id for task in asyncio.all_tasks()): # Heuristic for background
+             if file_handler_instance and audio_file_path:
+                logger.info(f"背景任務完成/失敗，開始清理檔案 (Job {job_id}): {audio_file_path}")
+                file_handler_instance.cleanup_temp_file(audio_file_path)
+
 
 async def process_audio_background(
     job_id: str, 
-    file_content: bytes, 
-    filename: str, 
+    audio_file_path: str,
     language: str, 
     analysis_type: str,
     num_speakers: Optional[int] = None,
@@ -321,11 +341,28 @@ async def process_audio_background(
     """背景處理音訊"""
     try:
         await process_audio_sync(
-            job_id, file_content, filename, language, analysis_type,
+            job_id, audio_file_path, language, analysis_type,
             num_speakers, min_speakers, max_speakers
         )
     except Exception as e:
-        logger.error(f"背景處理失敗 {job_id}: {e}")
+        logger.error(f"背景處理失敗 (Job {job_id}): {e}")
+        # Ensure job status is updated if process_audio_sync failed to do so
+        if job_id in processing_jobs and processing_jobs[job_id].get("status") != "failed":
+            processing_jobs[job_id].update({
+                "status": "failed",
+                "error": f"背景任務執行失敗: {str(e)}",
+                "progress": 0
+            })
+    finally:
+        # Ensure cleanup for background tasks, even if process_audio_sync's finally didn't run due to early error
+        # This is a fallback, ideally process_audio_sync's finally should always execute.
+        # However, if process_audio_sync itself fails to enter its try block, this is needed.
+        if file_handler_instance and audio_file_path:
+            # Check if file still exists, as process_audio_sync might have cleaned it
+            if Path(audio_file_path).exists():
+                 logger.info(f"背景任務結束，確認清理檔案 (Job {job_id}): {audio_file_path}")
+                 file_handler_instance.cleanup_temp_file(audio_file_path)
+
 
 @app.post("/analyze-transcript")
 async def analyze_transcript(request: AnalyzeTranscriptRequest):
@@ -483,10 +520,20 @@ async def clear_completed_jobs():
 @app.on_event("startup")
 async def startup_event():
     """應用啟動初始化"""
-    global processor, openrouter
+    global processor, openrouter, file_handler_instance
     
     logger.info("🚀 AI Meeting Tool Backend 啟動中...")
     
+    # 初始化 FileHandler
+    try:
+        file_handler_instance = FileHandler()
+        logger.info(f"✅ FileHandler initialized. Upload dir: {file_handler_instance.upload_dir}")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize FileHandler: {e}")
+        file_handler_instance = None # Ensure it's defined for checks; server might proceed or halt based on policy
+        # Depending on policy, might raise an error here to stop server startup
+        # raise RuntimeError(f"Critical component FileHandler failed to initialize: {e}") from e
+
     # 檢查必要的環境變數
     required_env_vars = ["HF_TOKEN", "OPENROUTER_API_KEY"]
     missing_vars = [var for var in required_env_vars if not os.getenv(var)]
@@ -505,22 +552,36 @@ async def startup_event():
         device = os.getenv("DEVICE", "auto")
         language = os.getenv("DEFAULT_LANGUAGE", "zh")
         
+        # Read BATCH_SIZE from environment variables
+        batch_size_env = os.getenv("BATCH_SIZE", "16")
+        batch_size = int(batch_size_env) if batch_size_env.isdigit() else 16
+
+        # Read COMPUTE_TYPE from environment variables
+        compute_type = os.getenv("COMPUTE_TYPE", "float16")
+        # Optional: Add validation for allowed compute types
+        allowed_compute_types = ["float16", "float32", "int8"]
+        if compute_type not in allowed_compute_types:
+            logger.warning(f"無效的 COMPUTE_TYPE: {compute_type}. 使用預設值 'float16'.")
+            compute_type = "float16"
+
         processor = WhisperXProcessor(
             model_size=model_size,
             device=device,
-            language=language
+            language=language,
+            compute_type=compute_type, # Pass the value from env
+            batch_size=batch_size    # Pass the value from env
         )
-        logger.info(f"✅ WhisperX 處理器初始化完成 (模型: {model_size}, 設備: {device})")
+        logger.info(f"✅ WhisperX 處理器初始化完成 (模型: {model_size}, 設備: {device}, 語言: {language}, 計算類型: {compute_type}, 批次大小: {batch_size})")
         
         # 初始化 OpenRouter 客戶端
         logger.info("🤖 初始化 OpenRouter 客戶端...")
         openrouter = OpenRouterClient()
         logger.info("✅ OpenRouter 客戶端初始化完成")
         
-        # 建立臨時目錄
-        temp_dir = os.getenv("TEMP_DIR", "/tmp/ai_meeting_tool")
-        os.makedirs(temp_dir, exist_ok=True)
-        logger.info(f"📁 臨時目錄已建立: {temp_dir}")
+        # 建立臨時目錄 (FileHandler now manages its own directories)
+        # temp_dir = os.getenv("TEMP_DIR", "/tmp/ai_meeting_tool") # No longer needed here if FileHandler manages
+        # os.makedirs(temp_dir, exist_ok=True)
+        # logger.info(f"📁 臨時目錄已建立: {temp_dir}") # Commented out
         
         logger.info("🎉 AI Meeting Tool Backend 啟動完成！")
         logger.info("📖 API 文檔：http://localhost:8000/docs")
