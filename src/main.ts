@@ -494,7 +494,7 @@ function getPromptTemplate(type: string): string {
     return templates[type as keyof typeof templates] || templates.summary;
 }
 
-// 分享功能
+// 分享功能 - 更新為最新的 Line API
 function shareToLine() {
     if (!currentAnalysisResult) {
         showToast('沒有可分享的分析結果', 'error');
@@ -506,29 +506,63 @@ function shareToLine() {
         const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
         const analysisTypeText = analysisTypeElement.options[analysisTypeElement.selectedIndex].text;
         
-        // 格式化分享內容（Line分享仍限制長度）
+        // 格式化分享內容
         const shareContent = formatShareContent(currentAnalysisResult, analysisTypeText);
         
-        // 檢測設備類型
-        const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        
-        if (isMobile) {
-            // 手機使用 Line URL Scheme
-            const encodedText = encodeURIComponent(shareContent);
-            const lineUrl = `https://line.me/R/msg/text/?${encodedText}`;
-            window.open(lineUrl, '_blank');
+        // 檢查是否支援 Web Share API（優先使用）
+        if (navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+            // 使用 Web Share API（在支援的裝置上）
+            navigator.share({
+                title: `AI會議分析 - ${analysisTypeText}`,
+                text: shareContent
+            }).then(() => {
+                showToast('分享成功！', 'success');
+            }).catch((error) => {
+                // 如果使用者取消分享，不顯示錯誤
+                if (error.name !== 'AbortError') {
+                    console.error('Web Share API 失敗:', error);
+                    // 降級到 Line URL scheme
+                    fallbackToLineUrl(shareContent);
+                }
+            });
         } else {
-            // 桌面使用 Line 網頁版分享
-            const encodedText = encodeURIComponent(shareContent);
-            const lineUrl = `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(window.location.href)}&text=${encodedText}`;
-            window.open(lineUrl, '_blank', 'width=500,height=500');
+            // 直接使用 Line URL scheme
+            fallbackToLineUrl(shareContent);
         }
-        
-        showToast('正在打開Line分享...', 'success');
         
     } catch (error) {
         console.error('分享到Line失敗:', error);
         showToast('分享失敗，請稍後再試', 'error');
+    }
+}
+
+// Line URL scheme 分享（備用方案）
+function fallbackToLineUrl(shareContent: string) {
+    try {
+        // 使用新的 Line 分享 URL 格式
+        const encodedText = encodeURIComponent(shareContent);
+        
+        // 檢測設備類型
+        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        
+        let lineUrl: string;
+        
+        if (isMobile) {
+            // 手機使用新的 Line URL 格式
+            lineUrl = `https://line.me/R/share?text=${encodedText}`;
+        } else {
+            // 桌面版使用 Line Social Plugins
+            // 只分享文字，不包含 URL
+            lineUrl = `https://social-plugins.line.me/lineit/share?text=${encodedText}`;
+        }
+        
+        // 開啟分享連結
+        window.open(lineUrl, '_blank');
+        showToast('正在打開Line分享...', 'success');
+        
+    } catch (error) {
+        console.error('Line URL scheme 分享失敗:', error);
+        showToast('分享失敗，請手動複製內容', 'error');
     }
 }
 
@@ -592,24 +626,14 @@ function formatShareContent(result: string, analysisType: string): string {
         content = content.substring(0, 800) + '...\n\n📄 完整內容請查看原始分析結果';
     }
     
-    return `🤖 AI會議分析結果 - ${analysisType}
-
-${content}
-
-📅 分析時間：${currentTime}
-🔗 使用工具：阿玩AI語音會議分析工具`;
+    return `🤖 AI會議分析結果 - ${analysisType}\n\n${content}\n\n📅 分析時間：${currentTime}\n🔗 使用工具：阿玩AI語音會議分析工具`;
 }
 
 // 格式化複製內容（使用完整內容）
 function formatCopyContent(result: string, analysisType: string): string {
     const currentTime = new Date().toLocaleString('zh-TW');
     
-    return `🤖 AI會議分析結果 - ${analysisType}
-
-${result}
-
-📅 分析時間：${currentTime}
-🔗 使用工具：阿玩AI語音會議分析工具`;
+    return `🤖 AI會議分析結果 - ${analysisType}\n\n${result}\n\n📅 分析時間：${currentTime}\n🔗 使用工具：阿玩AI語音會議分析工具`;
 }
 
 // 顯示/隱藏分享區域
