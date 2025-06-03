@@ -24,7 +24,7 @@ export class OpenRouterAPI {
         const messages: ChatMessage[] = [
             {
                 role: 'system',
-                content: '你是一個專業的會議分析助手，請用繁體中文回應。你的任務是幫助用戶分析會議內容，提供清晰、有條理的分析結果。'
+                content: 'You are a professional meeting analysis assistant. Please respond in Traditional Chinese. Your task is to help users analyze meeting content and provide clear, structured analysis results.'
             },
             {
                 role: 'user',
@@ -38,7 +38,7 @@ export class OpenRouterAPI {
                 headers: {
                     'Authorization': `Bearer ${this.apiKey}`,
                     'HTTP-Referer': window.location.origin,
-                    'X-Title': '阿玩AI會議工具',
+                    'X-Title': 'AI Meeting Tool',
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
@@ -51,19 +51,19 @@ export class OpenRouterAPI {
             
             if (!response.ok) {
                 const errorData = await response.text();
-                throw new Error(`API 請求失敗 (${response.status}): ${errorData}`);
+                throw new Error(`API request failed (${response.status}): ${errorData}`);
             }
             
             const data: OpenRouterResponse = await response.json();
             
             if (!data.choices || data.choices.length === 0) {
-                throw new Error('API 返回無效響應');
+                throw new Error('API returned invalid response');
             }
             
             return data.choices[0].message.content.trim();
             
         } catch (error) {
-            console.error('OpenRouter API 錯誤:', error);
+            console.error('OpenRouter API error:', error);
             
             if (error instanceof TypeError && error.message.includes('fetch')) {
                 throw new Error('網路連接錯誤，請檢查網路連接');
@@ -79,7 +79,7 @@ export class OpenRouterAPI {
             await this.chat('測試連接');
             return true;
         } catch (error) {
-            console.error('API 連接測試失敗:', error);
+            console.error('API connection test failed:', error);
             return false;
         }
     }
