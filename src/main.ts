@@ -321,7 +321,7 @@ function handleFileUpload(event: Event) {
     }
 }
 
-// AI 分析功能
+// AI 分析功能 - 使用完整內容
 async function analyzeTranscript() {
     const transcript = document.getElementById('transcript')?.textContent?.trim();
     const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
@@ -345,6 +345,12 @@ async function analyzeTranscript() {
     // 隱藏分享區域
     hideShareSection();
     
+    // 檢查內容長度並給予提示
+    const wordCount = cleanTranscript.length;
+    if (wordCount > 10000) {
+        showStatus(`正在分析長文本內容 (${wordCount} 字)，請耐心等候...`);
+    }
+    
     // 顯示載入狀態
     analyzeBtn.disabled = true;
     analyzeBtn.textContent = '🤔 AI思考中...';
@@ -353,14 +359,28 @@ async function analyzeTranscript() {
     
     try {
         const prompt = getPromptTemplate(analysisType);
+        
+        // 使用完整內容進行AI分析（不再限制800字）
         const fullPrompt = `${prompt}\n\n會議錄音轉錄內容：\n${cleanTranscript}`;
         
-        const response = await api.chat(fullPrompt);
+        // 檢查是否超過模型限制（預估）
+        const estimatedTokens = estimateTokenCount(fullPrompt);
+        if (estimatedTokens > 120000) { // 保留一些空間給回應
+            // 如果超過限制，分段處理或截取
+            const truncatedTranscript = truncateText(cleanTranscript, 100000); // 保留大部分內容
+            const truncatedPrompt = `${prompt}\n\n會議錄音轉錄內容（由於內容過長，已自動截取前 100,000 字）：\n${truncatedTranscript}`;
+            
+            showStatus(`內容過長，正在分析前 100,000 字...`);
+            const response = await api.chat(truncatedPrompt);
+            currentAnalysisResult = response;
+            showResult(response);
+        } else {
+            // 使用完整內容
+            const response = await api.chat(fullPrompt);
+            currentAnalysisResult = response;
+            showResult(response);
+        }
         
-        // 儲存分析結果
-        currentAnalysisResult = response;
-        
-        showResult(response);
         showStatus('分析完成！');
         
         // 顯示分享區域
@@ -368,12 +388,97 @@ async function analyzeTranscript() {
         
     } catch (error) {
         console.error('分析錯誤:', error);
-        showResult(`分析失敗：${error instanceof Error ? error.message : '未知錯誤'}`, true);
-        showStatus('分析失敗', 'error');
+        
+        // 特殊處理超長內容錯誤
+        if (error instanceof Error && error.message.includes('token')) {
+            showResult('內容過長，正在嘗試分段分析...', true);
+            try {
+                // 嘗試分段分析
+                const segments = splitTextIntoSegments(cleanTranscript, 50000);
+                const analysisResults = [];
+                
+                for (let i = 0; i < segments.length; i++) {
+                    showStatus(`正在分析第 ${i + 1}/${segments.length} 段...`);
+                    const segmentPrompt = `${getPromptTemplate(analysisType)}\n\n會議錄音轉錄內容（第${i + 1}段，共${segments.length}段）：\n${segments[i]}`;
+                    const segmentResult = await api.chat(segmentPrompt);
+                    analysisResults.push(`=== 第${i + 1}段分析 ===\n${segmentResult}`);
+                }
+                
+                // 合併結果
+                const finalResult = analysisResults.join('\n\n');
+                currentAnalysisResult = finalResult;
+                showResult(finalResult);
+                showStatus('分段分析完成！');
+                showShareSection();
+                
+            } catch (segmentError) {
+                showResult(`分析失敗：${segmentError instanceof Error ? segmentError.message : '內容過長，請嘗試較短的錄音'}`, true);
+                showStatus('分析失敗', 'error');
+            }
+        } else {
+            showResult(`分析失敗：${error instanceof Error ? error.message : '未知錯誤'}`, true);
+            showStatus('分析失敗', 'error');
+        }
     } finally {
         analyzeBtn.disabled = false;
         analyzeBtn.textContent = '🤖 開始AI分析';
     }
+}
+
+// 估算 token 數量（粗略估算）
+function estimateTokenCount(text: string): number {
+    // 中文大約 1.5 字符 = 1 token，英文大約 4 字符 = 1 token
+    const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+    const otherChars = text.length - chineseChars;
+    
+    return Math.ceil(chineseChars / 1.5) + Math.ceil(otherChars / 4);
+}
+
+// 截取文字到指定長度
+function truncateText(text: string, maxLength: number): string {
+    if (text.length <= maxLength) return text;
+    
+    // 在句號或換行處截取，避免截斷句子
+    const truncated = text.substring(0, maxLength);
+    const lastPeriod = Math.max(truncated.lastIndexOf('。'), truncated.lastIndexOf('\n'));
+    
+    if (lastPeriod > maxLength * 0.8) {
+        return truncated.substring(0, lastPeriod + 1);
+    }
+    
+    return truncated;
+}
+
+// 將文字分段
+function splitTextIntoSegments(text: string, segmentLength: number): string[] {
+    if (text.length <= segmentLength) return [text];
+    
+    const segments = [];
+    let currentPosition = 0;
+    
+    while (currentPosition < text.length) {
+        let endPosition = currentPosition + segmentLength;
+        
+        if (endPosition >= text.length) {
+            // 最後一段
+            segments.push(text.substring(currentPosition));
+            break;
+        }
+        
+        // 尋找合適的分割點（句號或換行）
+        const searchStart = Math.max(currentPosition, endPosition - 1000);
+        const segment = text.substring(searchStart, endPosition);
+        const lastPeriod = Math.max(segment.lastIndexOf('。'), segment.lastIndexOf('\n'));
+        
+        if (lastPeriod > 0) {
+            endPosition = searchStart + lastPeriod + 1;
+        }
+        
+        segments.push(text.substring(currentPosition, endPosition));
+        currentPosition = endPosition;
+    }
+    
+    return segments;
 }
 
 function getPromptTemplate(type: string): string {
@@ -401,7 +506,7 @@ function shareToLine() {
         const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
         const analysisTypeText = analysisTypeElement.options[analysisTypeElement.selectedIndex].text;
         
-        // 格式化分享內容
+        // 格式化分享內容（Line分享仍限制長度）
         const shareContent = formatShareContent(currentAnalysisResult, analysisTypeText);
         
         // 檢測設備類型
@@ -438,8 +543,8 @@ function copyResult() {
         const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
         const analysisTypeText = analysisTypeElement.options[analysisTypeElement.selectedIndex].text;
         
-        // 格式化複製內容
-        const copyContent = formatShareContent(currentAnalysisResult, analysisTypeText);
+        // 格式化複製內容（複製功能使用完整內容）
+        const copyContent = formatCopyContent(currentAnalysisResult, analysisTypeText);
         
         // 複製到剪貼板
         navigator.clipboard.writeText(copyContent).then(() => {
@@ -477,19 +582,31 @@ function fallbackCopyText(text: string) {
     document.body.removeChild(textArea);
 }
 
-// 格式化分享內容
+// 格式化分享內容（Line分享限制長度）
 function formatShareContent(result: string, analysisType: string): string {
     const currentTime = new Date().toLocaleString('zh-TW');
     
     // 限制內容長度（Line 建議不超過 1000 字）
     let content = result;
     if (content.length > 800) {
-        content = content.substring(0, 800) + '...';
+        content = content.substring(0, 800) + '...\n\n📄 完整內容請查看原始分析結果';
     }
     
     return `🤖 AI會議分析結果 - ${analysisType}
 
 ${content}
+
+📅 分析時間：${currentTime}
+🔗 使用工具：阿玩AI語音會議分析工具`;
+}
+
+// 格式化複製內容（使用完整內容）
+function formatCopyContent(result: string, analysisType: string): string {
+    const currentTime = new Date().toLocaleString('zh-TW');
+    
+    return `🤖 AI會議分析結果 - ${analysisType}
+
+${result}
 
 📅 分析時間：${currentTime}
 🔗 使用工具：阿玩AI語音會議分析工具`;
