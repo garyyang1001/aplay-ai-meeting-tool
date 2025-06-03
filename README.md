@@ -18,11 +18,17 @@
 - 👥 **參與者分析** - 識別發言者和貢獻
 - 😊 **情緒分析** - 分析會議整體氣氛
 
+### 📱 分享功能
+- **分享到Line** - 一鍵分享分析結果到Line
+- **複製結果** - 快速複製分析內容到剪貼板
+- **智能格式化** - 自動添加時間戳記和來源信息
+- **長度優化** - 自動調整內容長度符合Line限制
+
 ### 🌐 技術特色
 - **繁體中文支援** - 完整的中文語音識別和分析
-- **瀏覽器相容** - 支援 Chrome、Edge、Safari
+- **手機優化設計** - 專為手機使用體驗優化
+- **響應式佈局** - 適配各種設備尺寸
 - **即時處理** - 邊錄音邊轉文字
-- **響應式設計** - 適配各種設備
 
 ## 🚀 快速開始
 
@@ -37,6 +43,7 @@
 - 🎤 語音錄製：需要麥克風權限
 - 🗣️ 語音轉文字：需支援 Web Speech API
 - 🤖 AI 分析：所有現代瀏覽器
+- 📱 Line分享：支援手機和桌面版
 
 ### 環境需求
 
@@ -91,6 +98,7 @@
 - **前端框架**: Vanilla TypeScript + Vite
 - **AI 模型**: Google Gemma 3 27B (透過 OpenRouter)
 - **語音技術**: Web Speech API + MediaRecorder API
+- **分享功能**: Line URL Scheme + Clipboard API
 - **樣式**: 原生 CSS3 with 動畫效果
 - **部署**: Zeabur 雲端平台
 
@@ -99,10 +107,10 @@
 ```
 aplay-ai-meeting-tool/
 ├── src/
-│   ├── main.ts          # 主要應用程式邏輯（包含語音功能）
+│   ├── main.ts          # 主要應用程式邏輯（包含語音和分享功能）
 │   ├── api.ts           # OpenRouter API 整合
 │   └── vite-env.d.ts    # TypeScript 類型定義
-├── index.html           # 主要 HTML 檔案（語音界面）
+├── index.html           # 主要 HTML 檔案（手機優化界面）
 ├── package.json         # 專案設定和依賴
 ├── tsconfig.json        # TypeScript 設定
 ├── vite.config.js       # Vite 建構設定
@@ -116,16 +124,38 @@ aplay-ai-meeting-tool/
 
 1. **授權麥克風** - 第一次使用時允許麥克風權限
 2. **開始錄音** - 點擊大的紅色麥克風按鈕
-3. **即時轉文字** - 說話內容會即時顯示在轉錄區域
+3. **即時轉文字** - 說話內容會即時顯示在轉錄區域（固定高度，可滾動）
 4. **停止錄音** - 再次點擊按鈕或點擊停止鍵
 5. **選擇分析類型** - 選擇想要的 AI 分析角度
 6. **開始分析** - AI 會自動分析錄音內容
+
+### 分享功能流程
+
+1. **完成AI分析** - 分析完成後會自動顯示分享按鈕
+2. **選擇分享方式**：
+   - **📱 分享到Line** - 自動打開Line應用程式或網頁版
+   - **📋 複製結果** - 複製格式化後的內容到剪貼板
+3. **自動格式化** - 包含分析類型、結果內容、時間戳記
 
 ### 文件上傳流程
 
 1. **上傳音頻** - 點擊「上傳音頻文件」按鈕
 2. **手動轉錄** - 目前需要手動輸入文字內容
 3. **AI 分析** - 選擇分析類型並開始分析
+
+## 📱 手機使用優化
+
+### UI/UX 特色
+- **固定高度轉錄框** - 避免內容過長影響版面
+- **大尺寸按鈕** - 適合手指操作的按鈕大小
+- **響應式設計** - 3個斷點適應不同螢幕
+- **觸控反饋** - 按鈕點擊的視覺回饋
+
+### 分享體驗
+- **智能檢測** - 自動判斷手機/桌面環境
+- **Line整合** - 手機直接打開Line app，桌面打開網頁版
+- **內容優化** - 自動調整分享內容長度
+- **一鍵操作** - 簡化分享流程
 
 ## 🔑 API 設定
 
@@ -135,27 +165,21 @@ aplay-ai-meeting-tool/
 - **API 端點**: `https://openrouter.ai/api/v1/chat/completions`
 - **認證**: Bearer Token (您的 API Key)
 
-## 🚀 API 使用範例
+## 📱 Line 分享技術
 
-```javascript
-const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-  method: "POST",
-  headers: {
-    "Authorization": "Bearer <OPENROUTER_API_KEY>",
-    "HTTP-Referer": "<YOUR_SITE_URL>",
-    "X-Title": "阿玩AI語音會議分析工具",
-    "Content-Type": "application/json"
-  },
-  body: JSON.stringify({
-    "model": "google/gemma-3-27b-it:free",
-    "messages": [
-      {
-        "role": "user",
-        "content": "請分析這個會議錄音轉錄內容..."
-      }
-    ]
-  })
-});
+### 分享機制
+- **手機版**: 使用 Line URL Scheme (`line://msg/text/`)
+- **桌面版**: 使用 Line 網頁版分享 API
+- **內容格式**: 包含分析結果、時間戳記、來源標記
+
+### 分享內容範例
+```
+🤖 AI會議分析結果 - 會議摘要
+
+本次會議主要討論了新產品功能開發計劃...
+
+📅 分析時間：2025/6/3 下午8:17:58
+🔗 使用工具：阿玩AI語音會議分析工具
 ```
 
 ## 🎤 語音功能技術細節
@@ -176,6 +200,7 @@ const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
 - **API 安全**: 所有 AI 分析透過加密連接
 - **無儲存**: 錄音文件不會保存在伺服器
 - **權限控制**: 需要明確的麥克風使用權限
+- **分享安全**: 分享內容經過格式化和長度限制
 
 ## 🐛 故障排除
 
@@ -183,6 +208,11 @@ const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
 - **麥克風無權限**: 確認瀏覽器允許麥克風存取
 - **語音識別失效**: 嘗試使用 Chrome 或 Edge 瀏覽器
 - **錄音無聲**: 檢查系統音頻設定和麥克風
+
+### 分享功能問題
+- **Line分享失敗**: 確認設備已安裝Line應用程式
+- **複製失敗**: 檢查瀏覽器是否支援 Clipboard API
+- **內容格式異常**: 確認分析結果完整生成
 
 ### API 問題
 - **分析失敗**: 檢查 OpenRouter API Key 是否正確設定
@@ -202,4 +232,4 @@ Gary Yang - [GitHub](https://github.com/garyyang1001)
 
 ---
 
-**享受您的 AI 驅動語音會議分析體驗！** 🎤🤖
+**享受您的 AI 驅動語音會議分析體驗！** 🎤🤖📱
