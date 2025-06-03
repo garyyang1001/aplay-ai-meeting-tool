@@ -3,563 +3,592 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 會議助手 v2.0 - 專業級會議錄音與分析工具</title>
-    <meta name="description" content="整合 OpenRouter、Firebase、Mac Mini 處理服務的專業 AI 會議分析工具">
-    <meta name="keywords" content="AI,會議,錄音,轉錄,分析,說話者識別,pyannote,OpenRouter">
+    <title>AI 會議助手 v2.0 - 專業會議錄音與分析工具</title>
+    <meta name="description" content="整合 OpenRouter、Firebase、Mac Mini 處理的專業級會議錄音、轉錄、說話者識別和 AI 分析工具">
+    <meta name="keywords" content="AI會議,錄音轉錄,說話者識別,會議分析,OpenRouter,Firebase">
     
-    <!-- PWA 支援 -->
+    <!-- PWA 配置 -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#3B82F6">
-    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
     
     <!-- 樣式 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        :root {
-            --primary-color: #3B82F6;
-            --success-color: #10B981;
-            --warning-color: #F59E0B;
-            --error-color: #EF4444;
-            --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        /* 自定義樣式 */
+        .recording {
+            animation: pulse 1.5s infinite;
         }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: var(--bg-gradient);
-            min-height: 100vh;
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
         }
-
-        .container {
-            max-width: 768px;
-            margin: 0 auto;
-            background: white;
-            min-height: 100vh;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
-        }
-
-        .header {
-            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
-            color: white;
-            padding: 1rem;
-            text-align: center;
-        }
-
-        .service-status {
+        
+        .loading {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            background: #f8fafc;
-            padding: 0.75rem;
-            border-radius: 8px;
-            margin: 1rem 0;
-            font-size: 0.875rem;
+            gap: 8px;
         }
-
+        
+        .loading::after {
+            content: '';
+            width: 20px;
+            height: 20px;
+            border: 2px solid #3B82F6;
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .status {
+            padding: 8px 16px;
+            border-radius: 4px;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        
+        .status.success {
+            background-color: #D1FAE5;
+            color: #065F46;
+            border: 1px solid #A7F3D0;
+        }
+        
+        .status.error {
+            background-color: #FEE2E2;
+            color: #991B1B;
+            border: 1px solid #FECACA;
+        }
+        
+        .status.warning {
+            background-color: #FEF3C7;
+            color: #92400E;
+            border: 1px solid #FDE68A;
+        }
+        
+        .status.info {
+            background-color: #DBEAFE;
+            color: #1E40AF;
+            border: 1px solid #BFDBFE;
+        }
+        
+        .service-status {
+            display: grid;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        
         .status-item {
             display: flex;
             align-items: center;
-            gap: 0.25rem;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
         }
-
+        
         .status-item.available {
-            color: var(--success-color);
+            background-color: #ECFDF5;
+            color: #047857;
+            border: 1px solid #A7F3D0;
         }
-
+        
         .status-item.unavailable {
-            color: var(--error-color);
+            background-color: #FEF2F2;
+            color: #B91C1C;
+            border: 1px solid #FECACA;
         }
-
+        
         .processing-mode {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px;
+            background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
+            color: white;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        
+        .speaker-stats {
+            display: grid;
+            gap: 12px;
+            margin-top: 12px;
+        }
+        
+        .speaker-stat {
+            padding: 12px;
+            border: 1px solid #E5E7EB;
+            border-radius: 8px;
+            background: #F9FAFB;
+        }
+        
+        .speaker-name {
             font-weight: 600;
             color: #374151;
+            margin-bottom: 4px;
         }
-
-        .mode-value {
-            color: var(--primary-color);
+        
+        .speaker-time {
+            font-size: 14px;
+            color: #6B7280;
+            margin-bottom: 8px;
         }
-
-        .recording-section {
-            text-align: center;
-            padding: 2rem 1rem;
-            border-bottom: 1px solid #e5e7eb;
-        }
-
-        .record-btn {
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            border: none;
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            color: white;
-            font-size: 2rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
-            margin-bottom: 1rem;
-        }
-
-        .record-btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
-        }
-
-        .record-btn.recording {
-            animation: pulse 1.5s infinite;
-            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-        }
-
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-            70% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-        }
-
-        .stop-btn {
-            background: #6b7280;
-            color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            margin-left: 1rem;
-            cursor: pointer;
-            display: none;
-        }
-
-        .recording-timer {
-            font-size: 2rem;
-            font-weight: 700;
-            color: #ef4444;
-            margin: 1rem 0;
-        }
-
-        .transcript-section {
-            padding: 1rem;
-        }
-
-        .transcript-box {
-            background: #f9fafb;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 1rem;
-            min-height: 120px;
-            font-family: monospace;
-            font-size: 0.875rem;
-            line-height: 1.5;
-            white-space: pre-wrap;
-            overflow-y: auto;
-            max-height: 300px;
-        }
-
-        .analysis-section {
-            padding: 1rem;
-            border-top: 1px solid #e5e7eb;
-        }
-
-        .analysis-controls {
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 1rem;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .analysis-select {
-            flex: 1;
-            min-width: 200px;
-            padding: 0.5rem;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            background: white;
-        }
-
-        .analyze-btn {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-            border: none;
-            padding: 0.75rem 1.5rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            white-space: nowrap;
-        }
-
-        .analyze-btn:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-        }
-
-        .analyze-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .result-section {
-            margin-top: 1rem;
-            padding: 1rem;
-            background: #fefefe;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            display: none;
-        }
-
-        .result-section.show {
-            display: block;
-        }
-
-        .speaker-info {
-            margin-top: 1rem;
-            padding: 1rem;
-            background: #f0f9ff;
-            border: 1px solid #0ea5e9;
-            border-radius: 8px;
-            display: none;
-        }
-
-        .speaker-stats {
-            margin-top: 0.5rem;
-        }
-
-        .speaker-stat {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.5rem;
-            padding: 0.5rem;
-            background: white;
-            border-radius: 4px;
-        }
-
+        
         .speaker-bar {
-            width: 100px;
-            height: 8px;
-            background: #e5e7eb;
-            border-radius: 4px;
+            width: 100%;
+            height: 6px;
+            background: #E5E7EB;
+            border-radius: 3px;
             overflow: hidden;
         }
-
+        
         .speaker-bar-fill {
             height: 100%;
-            background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+            background: linear-gradient(90deg, #3B82F6, #1D4ED8);
             transition: width 0.3s ease;
         }
-
+        
         .share-section {
-            padding: 1rem;
-            border-top: 1px solid #e5e7eb;
-            background: #f8fafc;
-            display: none;
+            opacity: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: all 0.3s ease;
         }
-
+        
         .share-section.show {
-            display: block;
+            opacity: 1;
+            max-height: 200px;
         }
-
-        .share-buttons {
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-        }
-
-        .share-btn {
-            background: #00c300;
-            color: white;
-            border: none;
-            padding: 0.75rem 1.5rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            transition: all 0.3s ease;
-        }
-
-        .copy-btn {
-            background: #6b7280;
-        }
-
-        .share-btn:hover {
-            transform: translateY(-1px);
-            opacity: 0.9;
-        }
-
-        .upload-section {
-            padding: 1rem;
-            text-align: center;
-            border-top: 1px solid #e5e7eb;
-        }
-
-        .upload-input {
-            display: none;
-        }
-
-        .upload-label {
-            display: inline-block;
-            background: #6366f1;
-            color: white;
-            padding: 0.75rem 1.5rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.3s ease;
-        }
-
-        .upload-label:hover {
-            background: #5b21b6;
-            transform: translateY(-1px);
-        }
-
-        .audio-player {
-            width: 100%;
-            margin-top: 1rem;
-            display: none;
-        }
-
-        .status {
-            padding: 0.75rem 1rem;
-            margin: 0.5rem 1rem;
-            border-radius: 6px;
-            font-weight: 500;
-            text-align: center;
-        }
-
-        .status.success {
-            background: #d1fae5;
-            color: #065f46;
-            border: 1px solid #a7f3d0;
-        }
-
-        .status.error {
-            background: #fee2e2;
-            color: #991b1b;
-            border: 1px solid #fca5a5;
-        }
-
-        .status.warning {
-            background: #fef3c7;
-            color: #92400e;
-            border: 1px solid #fde68a;
-        }
-
-        .status.info {
-            background: #dbeafe;
-            color: #1e40af;
-            border: 1px solid #93c5fd;
-        }
-
+        
         .toast {
             position: fixed;
-            bottom: 2rem;
+            bottom: 20px;
             left: 50%;
-            transform: translateX(-50%);
+            transform: translateX(-50%) translateY(100px);
             background: #27ae60;
             color: white;
-            padding: 0.75rem 1.5rem;
+            padding: 12px 24px;
             border-radius: 6px;
-            font-weight: 600;
+            font-weight: 500;
             z-index: 1000;
             opacity: 0;
             transition: all 0.3s ease;
         }
-
+        
         .toast.show {
             opacity: 1;
-            transform: translateX(-50%) translateY(-10px);
+            transform: translateX(-50%) translateY(0);
         }
-
-        .loading {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            padding: 2rem;
-            color: #6b7280;
-        }
-
-        .loading::before {
-            content: '';
-            width: 20px;
-            height: 20px;
-            border: 2px solid #e5e7eb;
-            border-top: 2px solid #3b82f6;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .error {
-            color: #dc2626;
-            background: #fee2e2;
-            padding: 1rem;
-            border-radius: 6px;
-            border: 1px solid #fca5a5;
-        }
-
-        .version-info {
-            text-align: center;
-            padding: 1rem;
-            color: #6b7280;
-            font-size: 0.875rem;
-            border-top: 1px solid #e5e7eb;
-        }
-
-        .refresh-btn {
-            background: #8b5cf6;
+        
+        .feature-card {
+            background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
             color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.875rem;
-            margin-left: 1rem;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
         }
-
+        
+        .btn-gradient {
+            background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-gradient:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .analysis-option {
+            border: 2px solid #E5E7EB;
+            border-radius: 8px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .analysis-option:hover {
+            border-color: #3B82F6;
+            background: #F0F9FF;
+        }
+        
+        .tab-nav {
+            display: flex;
+            border-bottom: 2px solid #E5E7EB;
+            margin-bottom: 20px;
+        }
+        
+        .tab-btn {
+            padding: 12px 24px;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .tab-btn.active {
+            border-bottom-color: #3B82F6;
+            color: #3B82F6;
+            font-weight: 600;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
         /* 響應式設計 */
-        @media (max-width: 640px) {
-            .analysis-controls {
-                flex-direction: column;
+        @media (max-width: 768px) {
+            .container {
+                padding: 12px;
             }
-
-            .analysis-select {
-                min-width: auto;
-                width: 100%;
+            
+            .feature-card {
+                padding: 16px;
             }
-
-            .share-buttons {
-                flex-direction: column;
-            }
-
-            .service-status {
-                flex-direction: column;
-                gap: 0.5rem;
-                text-align: center;
+            
+            .analysis-option {
+                padding: 10px;
             }
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <!-- 頁面標題 -->
-        <header class="header">
-            <h1 class="text-2xl font-bold mb-2">🎤 AI 會議助手 v2.0</h1>
-            <p class="text-sm opacity-90">專業級會議錄音、轉錄與 AI 分析</p>
+<body class="bg-gray-50 font-sans">
+    <!-- 主容器 -->
+    <div class="min-h-screen">
+        <!-- 頭部 -->
+        <header class="bg-white shadow-sm border-b border-gray-200">
+            <div class="max-w-4xl mx-auto px-4 py-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-3xl font-bold text-gray-900">🎤 AI 會議助手</h1>
+                        <p class="text-gray-600 mt-1">專業會議錄音、轉錄、說話者識別和 AI 分析工具 v2.0</p>
+                    </div>
+                    <div class="text-right">
+                        <button onclick="recheckServices()" 
+                                class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                            🔄 重新檢查服務
+                        </button>
+                    </div>
+                </div>
+            </div>
         </header>
 
-        <!-- 服務狀態顯示 -->
-        <div id="serviceStatus" class="mx-4 mt-4">
-            <div class="service-status">
-                <div class="status-item">
-                    <span class="status-icon">⏳</span>
-                    <span>檢查服務狀態中...</span>
+        <!-- 主要內容 -->
+        <main class="max-w-4xl mx-auto px-4 py-8">
+            <!-- 系統狀態 -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">🔧 系統狀態</h2>
+                <div id="serviceStatus">
+                    <!-- 服務狀態將由 JavaScript 動態更新 -->
+                    <div class="text-gray-500">正在檢查服務狀態...</div>
                 </div>
-                <button onclick="recheckServices()" class="refresh-btn">🔄 重新檢查</button>
-            </div>
-        </div>
-
-        <!-- 狀態顯示區 -->
-        <div id="status" class="status info">系統啟動中...</div>
-
-        <!-- 錄音控制區 -->
-        <div id="recordingSection" class="recording-section">
-            <button id="recordBtn" class="record-btn" onclick="toggleRecording()">
-                🎤
-            </button>
-            <button id="stopBtn" class="stop-btn" onclick="stopRecording()">
-                ⏹️ 停止
-            </button>
-            
-            <div id="recordingStatus" class="text-lg font-semibold mb-2">
-                點擊麥克風開始錄製會議
-            </div>
-            
-            <div id="recordingTime" class="recording-timer">00:00</div>
-        </div>
-
-        <!-- 音頻播放器 -->
-        <div class="px-4">
-            <audio id="audioPlayer" class="audio-player" controls></audio>
-        </div>
-
-        <!-- 轉錄顯示區 -->
-        <div class="transcript-section">
-            <h3 class="text-lg font-semibold mb-2">📝 即時轉錄</h3>
-            <div id="transcript" class="transcript-box">
-                等待錄音開始...
-            </div>
-        </div>
-
-        <!-- 分析控制區 -->
-        <div class="analysis-section">
-            <h3 class="text-lg font-semibold mb-3">🤖 AI 分析</h3>
-            
-            <div class="analysis-controls">
-                <select id="analysisType" class="analysis-select">
-                    <option value="會議摘要">📋 會議摘要</option>
-                    <option value="行動項目">✅ 行動項目</option>
-                    <option value="重要決策">🎯 重要決策</option>
-                    <option value="智能分析">🧠 智能分析</option>
-                </select>
-                
-                <button id="analyzeBtn" class="analyze-btn" onclick="analyzeTranscript()">
-                    🤖 開始AI分析
-                </button>
+                <div id="status" class="status info">
+                    系統初始化中...
+                </div>
             </div>
 
-            <!-- 分析結果顯示 -->
-            <div id="result" class="result-section"></div>
-
-            <!-- 說話者信息顯示 -->
-            <div id="speakerInfo" class="speaker-info"></div>
-        </div>
-
-        <!-- 分享功能區 -->
-        <div id="shareSection" class="share-section">
-            <h3 class="text-lg font-semibold mb-3">📤 分享結果</h3>
-            <div class="share-buttons">
-                <button class="share-btn" onclick="shareToLine()">
-                    💬 分享到 Line
-                </button>
-                <button class="share-btn copy-btn" onclick="copyResult()">
-                    📋 複製結果
-                </button>
+            <!-- 功能特色 -->
+            <div class="feature-card">
+                <h3 class="text-xl font-bold mb-3">✨ 三層智能處理架構</h3>
+                <div class="grid md:grid-cols-3 gap-4 text-sm">
+                    <div class="bg-white bg-opacity-20 rounded-lg p-3">
+                        <div class="font-semibold">🌐 前端層</div>
+                        <div>即時錄音、語音識別</div>
+                    </div>
+                    <div class="bg-white bg-opacity-20 rounded-lg p-3">
+                        <div class="font-semibold">☁️ 雲端層</div>
+                        <div>Firebase 同步、OpenRouter AI</div>
+                    </div>
+                    <div class="bg-white bg-opacity-20 rounded-lg p-3">
+                        <div class="font-semibold">🖥️ 邊緣層</div>
+                        <div>Mac Mini 專業處理</div>
+                    </div>
+                </div>
             </div>
-        </div>
 
-        <!-- 檔案上傳區 -->
-        <div class="upload-section">
-            <h3 class="text-lg font-semibold mb-3">📁 或上傳音頻檔案</h3>
-            <input type="file" id="audioFile" class="upload-input" 
-                   accept="audio/*" onchange="handleFileUpload(event)">
-            <label for="audioFile" class="upload-label">
-                📎 選擇音頻檔案
-            </label>
-            <p class="text-sm text-gray-600 mt-2">
-                支援 MP3、WAV、WebM 等格式
-            </p>
-        </div>
+            <!-- 標籤導航 -->
+            <div class="tab-nav">
+                <div class="tab-btn active" onclick="switchTab('record')">🎤 錄音</div>
+                <div class="tab-btn" onclick="switchTab('upload')">📁 上傳</div>
+                <div class="tab-btn" onclick="switchTab('analysis')">🤖 分析</div>
+                <div class="tab-btn" onclick="switchTab('results')">📊 結果</div>
+            </div>
 
-        <!-- 版本信息 -->
-        <div class="version-info">
-            <p>AI 會議助手 v2.0 | 整合 OpenRouter + Firebase + Mac Mini</p>
-            <p class="text-xs mt-1">
-                🚀 前端 + ☁️ Firebase + 🖥️ Mac Mini + 🔗 Cloudflare Tunnel
-            </p>
-        </div>
+            <!-- 錄音標籤 -->
+            <div id="record-tab" class="tab-content active">
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                    <h2 class="text-xl font-semibold text-gray-900 mb-4">🎤 會議錄音</h2>
+                    
+                    <!-- 錄音控制 -->
+                    <div id="recordingSection" class="text-center mb-6">
+                        <div class="mb-4">
+                            <button id="recordBtn" 
+                                    onclick="toggleRecording()"
+                                    class="bg-red-500 hover:bg-red-600 text-white px-8 py-4 rounded-full text-lg font-semibold transition-all duration-300 transform hover:scale-105">
+                                🎙️ 開始錄音
+                            </button>
+                            <button id="stopBtn" 
+                                    onclick="stopRecording()"
+                                    style="display: none;"
+                                    class="bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-full ml-3 transition-all duration-300">
+                                ⏹️ 停止
+                            </button>
+                        </div>
+                        
+                        <div id="recordingStatus" class="text-gray-600 mb-2">
+                            點擊麥克風開始錄製會議
+                        </div>
+                        
+                        <div id="recordingTime" class="text-2xl font-mono text-blue-600 font-bold">
+                            00:00
+                        </div>
+                    </div>
+
+                    <!-- 即時轉錄 -->
+                    <div class="mb-6">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-3">📝 即時轉錄</h3>
+                        <div id="transcript" 
+                             class="w-full h-40 p-4 border border-gray-300 rounded-lg bg-gray-50 overflow-y-auto text-sm font-mono resize-none">
+                            <!-- 轉錄內容將顯示在這裡 -->
+                        </div>
+                    </div>
+
+                    <!-- 音頻播放器 -->
+                    <div class="mb-4">
+                        <audio id="audioPlayer" 
+                               controls 
+                               class="w-full" 
+                               style="display: none;">
+                            您的瀏覽器不支援音頻播放。
+                        </audio>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 上傳標籤 -->
+            <div id="upload-tab" class="tab-content">
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                    <h2 class="text-xl font-semibold text-gray-900 mb-4">📁 上傳音頻文件</h2>
+                    
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                        <div class="mb-4">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <div class="mb-4">
+                            <label for="audioFile" class="cursor-pointer">
+                                <span class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                                    選擇音頻文件
+                                </span>
+                                <input type="file" 
+                                       id="audioFile" 
+                                       accept="audio/*" 
+                                       onchange="handleFileUpload(event)" 
+                                       class="hidden">
+                            </label>
+                        </div>
+                        <p class="text-gray-500 text-sm">
+                            支援 MP3, WAV, WEBM 等格式，最大 2GB
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 分析標籤 -->
+            <div id="analysis-tab" class="tab-content">
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                    <h2 class="text-xl font-semibold text-gray-900 mb-4">🤖 AI 分析設定</h2>
+                    
+                    <!-- 分析類型選擇 -->
+                    <div class="mb-6">
+                        <label for="analysisType" class="block text-sm font-medium text-gray-700 mb-3">
+                            選擇分析類型
+                        </label>
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div class="analysis-option">
+                                <input type="radio" name="analysisType" value="會議摘要" id="summary" checked>
+                                <label for="summary" class="block cursor-pointer">
+                                    <div class="font-semibold">📝 會議摘要</div>
+                                    <div class="text-sm text-gray-600">生成重點內容整理</div>
+                                </label>
+                            </div>
+                            <div class="analysis-option">
+                                <input type="radio" name="analysisType" value="行動項目" id="actions">
+                                <label for="actions" class="block cursor-pointer">
+                                    <div class="font-semibold">✅ 行動項目</div>
+                                    <div class="text-sm text-gray-600">提取任務和責任歸屬</div>
+                                </label>
+                            </div>
+                            <div class="analysis-option">
+                                <input type="radio" name="analysisType" value="重要決策" id="decisions">
+                                <label for="decisions" class="block cursor-pointer">
+                                    <div class="font-semibold">🎯 重要決策</div>
+                                    <div class="text-sm text-gray-600">識別關鍵決策記錄</div>
+                                </label>
+                            </div>
+                            <div class="analysis-option">
+                                <input type="radio" name="analysisType" value="智能分析" id="smart">
+                                <label for="smart" class="block cursor-pointer">
+                                    <div class="font-semibold">🤖 智能分析</div>
+                                    <div class="text-sm text-gray-600">全面多維度分析</div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 隱藏的 select 元素（為了兼容原有代碼） -->
+                    <select id="analysisType" class="hidden">
+                        <option value="會議摘要">會議摘要</option>
+                        <option value="行動項目">行動項目</option>
+                        <option value="重要決策">重要決策</option>
+                        <option value="智能分析">智能分析</option>
+                    </select>
+
+                    <!-- 分析按鈕 -->
+                    <div class="text-center">
+                        <button id="analyzeBtn" 
+                                onclick="analyzeTranscript()"
+                                class="btn-gradient text-white px-8 py-4 rounded-lg text-lg font-semibold">
+                            🤖 開始 AI 分析
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 結果標籤 -->
+            <div id="results-tab" class="tab-content">
+                <!-- 分析結果 -->
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                    <h2 class="text-xl font-semibold text-gray-900 mb-4">📊 分析結果</h2>
+                    <div id="result" style="display: none;" class="prose max-w-none">
+                        <!-- 分析結果將顯示在這裡 -->
+                    </div>
+                    <div id="noResults" class="text-center text-gray-500 py-8">
+                        <div class="text-4xl mb-3">📋</div>
+                        <div>尚無分析結果</div>
+                        <div class="text-sm mt-2">請先錄音並進行 AI 分析</div>
+                    </div>
+                </div>
+
+                <!-- 說話者分析 -->
+                <div id="speakerInfo" class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6" style="display: none;">
+                    <!-- 說話者分析將顯示在這裡 -->
+                </div>
+
+                <!-- 分享功能 -->
+                <div id="shareSection" class="share-section">
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-4">📤 分享與匯出</h3>
+                        <div class="flex flex-wrap gap-3">
+                            <button onclick="shareToLine()" 
+                                    class="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                                📱 分享到 Line
+                            </button>
+                            <button onclick="copyResult()" 
+                                    class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                                📋 複製內容
+                            </button>
+                            <button onclick="downloadResult()" 
+                                    class="bg-purple-500 hover:bg-purple-600 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                                💾 下載結果
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 頁腳 -->
+        <footer class="bg-white border-t border-gray-200 mt-12">
+            <div class="max-w-4xl mx-auto px-4 py-8">
+                <div class="text-center text-gray-600">
+                    <p class="mb-2">🎤 AI 會議助手 v2.0</p>
+                    <p class="text-sm">
+                        整合 
+                        <a href="https://openrouter.ai/" target="_blank" class="text-blue-600 hover:text-blue-800">OpenRouter</a>、
+                        <a href="https://firebase.google.com/" target="_blank" class="text-blue-600 hover:text-blue-800">Firebase</a>、
+                        <a href="https://github.com/pyannote/pyannote-audio" target="_blank" class="text-blue-600 hover:text-blue-800">pyannote.audio</a> 
+                        的專業會議分析工具
+                    </p>
+                    <p class="text-xs mt-2">
+                        Made with ❤️ by <a href="https://github.com/garyyang1001" target="_blank" class="text-blue-600 hover:text-blue-800">Gary Yang</a>
+                    </p>
+                </div>
+            </div>
+        </footer>
     </div>
 
     <!-- Toast 通知 -->
-    <div id="toast" class="toast"></div>
+    <div id="toast" class="toast">
+        <!-- 通知內容 -->
+    </div>
 
-    <!-- PWA 安裝提示 -->
+    <!-- 載入腳本 -->
+    <script type="module" src="/src/main.ts"></script>
+
+    <!-- 額外的 JavaScript 功能 -->
     <script>
+        // 標籤切換功能
+        function switchTab(tabName) {
+            // 隱藏所有標籤內容
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 移除所有標籤按鈕的活動狀態
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // 顯示選中的標籤內容
+            document.getElementById(tabName + '-tab').classList.add('active');
+            
+            // 激活對應的標籤按鈕
+            event.target.classList.add('active');
+        }
+
+        // 分析類型選擇同步
+        document.querySelectorAll('input[name="analysisType"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                if (this.checked) {
+                    document.getElementById('analysisType').value = this.value;
+                }
+            });
+        });
+
+        // 下載結果功能
+        function downloadResult() {
+            const resultElement = document.getElementById('result');
+            if (resultElement && resultElement.textContent) {
+                const analysisType = document.querySelector('input[name="analysisType"]:checked').value;
+                const content = formatCopyContent(resultElement.textContent, analysisType);
+                
+                const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `AI會議分析_${analysisType}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                showToast('文件下載已開始', 'success');
+            } else {
+                showToast('沒有可下載的內容', 'error');
+            }
+        }
+
         // PWA 安裝提示
         let deferredPrompt;
-        
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
             deferredPrompt = e;
@@ -567,34 +596,54 @@
             // 顯示安裝提示
             const installBanner = document.createElement('div');
             installBanner.innerHTML = `
-                <div style="position: fixed; bottom: 0; left: 0; right: 0; background: #1e40af; color: white; padding: 1rem; text-align: center; z-index: 1001;">
-                    <p>📱 將 AI 會議助手安裝到主畫面？</p>
-                    <button onclick="installPWA()" style="background: white; color: #1e40af; border: none; padding: 0.5rem 1rem; border-radius: 4px; margin: 0 0.5rem; cursor: pointer;">安裝</button>
-                    <button onclick="this.parentElement.parentElement.remove()" style="background: transparent; color: white; border: 1px solid white; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">稍後</button>
+                <div class="bg-blue-600 text-white p-4 text-center">
+                    <span>安裝 AI 會議助手到您的設備？</span>
+                    <button onclick="installPWA()" class="ml-4 bg-white text-blue-600 px-4 py-1 rounded text-sm font-medium">
+                        安裝
+                    </button>
+                    <button onclick="this.parentElement.remove()" class="ml-2 text-blue-200 text-sm">
+                        ✕
+                    </button>
                 </div>
             `;
-            document.body.appendChild(installBanner);
+            document.body.insertBefore(installBanner, document.body.firstChild);
         });
 
-        window.installPWA = async () => {
+        function installPWA() {
             if (deferredPrompt) {
                 deferredPrompt.prompt();
-                const { outcome } = await deferredPrompt.userChoice;
-                deferredPrompt = null;
-                
-                // 移除安裝橫幅
-                const banner = document.querySelector('[style*="position: fixed; bottom: 0"]');
-                if (banner) banner.parentElement.remove();
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('用戶安裝了 PWA');
+                    }
+                    deferredPrompt = null;
+                });
             }
-        };
+        }
 
-        // Service Worker 註冊
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').catch(console.error);
+        // 初始化 formatCopyContent 函數（如果不存在）
+        if (typeof formatCopyContent === 'undefined') {
+            function formatCopyContent(result, analysisType) {
+                const currentTime = new Date().toLocaleString('zh-TW');
+                return `🤖 AI會議分析結果 - ${analysisType}\n\n${result}\n\n📅 分析時間：${currentTime}\n🔗 使用工具：AI 會議助手 v2.0`;
+            }
+        }
+
+        if (typeof showToast === 'undefined') {
+            function showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                if (toast) {
+                    toast.textContent = message;
+                    toast.style.background = type === 'success' ? '#27ae60' : 
+                                             type === 'error' ? '#e74c3c' : '#f39c12';
+                    toast.classList.add('show');
+                    
+                    setTimeout(() => {
+                        toast.classList.remove('show');
+                    }, 3000);
+                }
+            }
         }
     </script>
-
-    <!-- 主程式 -->
-    <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
