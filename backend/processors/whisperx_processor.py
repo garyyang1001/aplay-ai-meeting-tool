@@ -1,334 +1,349 @@
-import os
-import torch
+"""
+WhisperX 處理器
+整合語音轉錄和說話者辨識功能
+"""
+
 import whisperx
+import torch
+import gc
+import os
+import tempfile
 import logging
-from datetime import datetime
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Any
+from pathlib import Path
+import json
 
 logger = logging.getLogger(__name__)
 
 class WhisperXProcessor:
-    """
-    WhisperX 音訊處理器
-    整合語音轉錄和說話者辨識功能
-    """
+    def __init__(self, 
+                 model_size: str = "base",
+                 device: str = "auto",
+                 compute_type: str = "float16",
+                 language: str = "zh"):
+        """
+        初始化 WhisperX 處理器
+        
+        Args:
+            model_size: 模型大小 ("tiny", "base", "small", "medium", "large-v2", "large-v3")
+            device: 計算設備 ("cpu", "cuda", "auto")
+            compute_type: 計算精度 ("float16", "float32", "int8")
+            language: 語言代碼 ("zh", "en", "auto")
+        """
+        self.model_size = model_size
+        self.device = self._get_device(device)
+        self.compute_type = compute_type
+        self.language = language
+        self.batch_size = 16
+        
+        # 檢查 HuggingFace Token
+        self.hf_token = os.getenv("HF_TOKEN")
+        if not self.hf_token:
+            logger.warning("HF_TOKEN not found. Speaker diarization will be disabled.")
+        
+        # 模型將在第一次使用時加載
+        self.model = None
+        self.align_model = None
+        self.align_metadata = None
+        self.diarize_model = None
+        
+        logger.info(f"WhisperX initialized - Model: {model_size}, Device: {self.device}, Language: {language}")
     
-    def __init__(self):
-        self.device = self._get_device()
-        self.batch_size = int(os.getenv('BATCH_SIZE', 16))
-        self.compute_type = os.getenv('COMPUTE_TYPE', 'float16')
-        self.model_size = os.getenv('DEFAULT_MODEL_SIZE', 'large-v2')
-        
-        # 模型快取
-        self.whisper_model = None
-        self.align_models = {}  # 語言特定的對齊模型
-        self.diarization_pipeline = None
-        
-        logger.info(f"WhisperX 處理器初始化：設備={self.device}, 模型={self.model_size}")
-    
-    def _get_device(self) -> str:
-        """自動偵測最佳設備"""
-        device_setting = os.getenv('DEVICE', 'auto')
-        
-        if device_setting == 'auto':
+    def _get_device(self, device: str) -> str:
+        """智能選擇計算設備"""
+        if device == "auto":
             if torch.cuda.is_available():
-                return 'cuda'
+                return "cuda"
             elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                return 'mps'  # Apple Silicon GPU
+                return "mps"  # Apple Silicon
             else:
-                return 'cpu'
-        
-        return device_setting
+                return "cpu"
+        return device
     
-    async def initialize(self):
-        """初始化處理器和模型"""
+    def _load_models(self):
+        """延遲加載模型（節省記憶體）"""
         try:
-            # 預載入 Whisper 模型
-            logger.info(f"載入 Whisper 模型: {self.model_size}")
-            self.whisper_model = whisperx.load_model(
-                self.model_size,
-                self.device,
-                compute_type=self.compute_type
-            )
-            
-            # 預載入說話者辨識模型
-            hf_token = os.getenv('HF_TOKEN')
-            if hf_token:
-                logger.info("載入說話者辨識模型")
-                self.diarization_pipeline = whisperx.DiarizationPipeline(
-                    use_auth_token=hf_token,
-                    device=self.device
+            if self.model is None:
+                logger.info(f"Loading Whisper model: {self.model_size}")
+                self.model = whisperx.load_model(
+                    self.model_size, 
+                    self.device, 
+                    compute_type=self.compute_type,
+                    language=self.language if self.language != "auto" else None
                 )
-            else:
-                logger.warning("未設定 HF_TOKEN，說話者辨識功能將無法使用")
+                logger.info("Whisper model loaded successfully")
             
-            logger.info("✅ WhisperX 處理器初始化完成")
+            # 加載對齊模型（用於精確時間戳）
+            if self.align_model is None and self.language != "auto":
+                try:
+                    logger.info("Loading alignment model...")
+                    self.align_model, self.align_metadata = whisperx.load_align_model(
+                        language_code=self.language, 
+                        device=self.device
+                    )
+                    logger.info("Alignment model loaded successfully")
+                except Exception as e:
+                    logger.warning(f"Failed to load alignment model: {str(e)}")
             
+            # 加載說話者辨識模型
+            if self.diarize_model is None and self.hf_token:
+                try:
+                    logger.info("Loading diarization model...")
+                    self.diarize_model = whisperx.DiarizationPipeline(
+                        use_auth_token=self.hf_token, 
+                        device=self.device
+                    )
+                    logger.info("Diarization model loaded successfully")
+                except Exception as e:
+                    logger.warning(f"Failed to load diarization model: {str(e)}")
+                    
         except Exception as e:
-            logger.error(f"❌ WhisperX 處理器初始化失敗: {e}")
-            raise
+            logger.error(f"Failed to load models: {str(e)}")
+            raise Exception(f"模型加載失敗：{str(e)}")
     
-    def is_ready(self) -> bool:
-        """檢查處理器是否就緒"""
-        return self.whisper_model is not None
-    
-    def health_check(self) -> Dict[str, Union[str, bool]]:
-        """健康檢查"""
-        try:
-            # 檢查模型狀態
-            model_ready = self.whisper_model is not None
-            diarization_ready = self.diarization_pipeline is not None
-            
-            # 檢查 GPU 記憶體（如果使用 GPU）
-            gpu_info = self.get_gpu_info()
-            
-            return {
-                "status": "ready" if model_ready else "not_ready",
-                "whisper_model": model_ready,
-                "diarization": diarization_ready,
-                "device": self.device,
-                "gpu_info": gpu_info
-            }
-        except Exception as e:
-            logger.error(f"健康檢查失敗: {e}")
-            return {"status": "error", "error": str(e)}
-    
-    def get_gpu_info(self) -> Optional[Dict]:
-        """取得 GPU 資訊"""
-        try:
-            if self.device == 'cuda' and torch.cuda.is_available():
-                gpu_count = torch.cuda.device_count()
-                current_device = torch.cuda.current_device()
-                
-                return {
-                    "available": True,
-                    "device_count": gpu_count,
-                    "current_device": current_device,
-                    "device_name": torch.cuda.get_device_name(current_device),
-                    "memory_allocated": torch.cuda.memory_allocated(current_device),
-                    "memory_reserved": torch.cuda.memory_reserved(current_device)
-                }
-            return {"available": False, "reason": "CUDA not available"}
-        except Exception as e:
-            return {"available": False, "error": str(e)}
-    
-    def process_meeting_audio(
-        self, 
-        audio_path: str, 
-        language: str = "zh",
-        num_speakers: Optional[int] = None,
-        min_speakers: Optional[int] = None,
-        max_speakers: Optional[int] = None
-    ) -> Dict:
+    async def process_meeting_audio(self, 
+                                  audio_path: str, 
+                                  language: Optional[str] = None,
+                                  num_speakers: Optional[int] = None,
+                                  min_speakers: Optional[int] = None,
+                                  max_speakers: Optional[int] = None) -> Dict[str, Any]:
         """
         處理會議音訊：轉錄 + 說話者辨識
         
         Args:
             audio_path: 音訊檔案路徑
-            language: 語言代碼 (zh, en, ja, ko)
-            num_speakers: 固定說話者數量
+            language: 語言設定（覆蓋預設值）
+            num_speakers: 精確說話者數量
             min_speakers: 最少說話者數量
             max_speakers: 最多說話者數量
-        
+            
         Returns:
-            處理結果字典
+            處理結果包含轉錄和說話者資訊
         """
-        start_time = datetime.now()
-        
         try:
-            logger.info(f"開始處理音訊: {audio_path}, 語言: {language}")
+            # 加載模型
+            self._load_models()
             
-            # 1. 載入音訊
+            # 使用指定語言或預設語言
+            process_language = language or self.language
+            
+            logger.info(f"Processing audio: {audio_path}")
+            start_time = torch.cuda.Event(enable_timing=True) if torch.cuda.is_available() else None
+            end_time = torch.cuda.Event(enable_timing=True) if torch.cuda.is_available() else None
+            
+            if start_time:
+                start_time.record()
+            
+            # 1. 加載音訊
             audio = whisperx.load_audio(audio_path)
-            audio_duration = len(audio) / 16000  # 假設 16kHz 採樣率
-            
-            logger.info(f"音訊時長: {audio_duration:.2f} 秒")
+            audio_duration = len(audio) / 16000  # 假設 16kHz
+            logger.info(f"Audio duration: {audio_duration:.2f} seconds")
             
             # 2. 語音轉錄
-            logger.info("開始語音轉錄...")
-            result = self.whisper_model.transcribe(
-                audio,
+            logger.info("Starting transcription...")
+            result = self.model.transcribe(
+                audio, 
                 batch_size=self.batch_size,
-                language=language
+                language=process_language if process_language != "auto" else None
             )
             
-            # 3. 詞級對齊
-            logger.info("開始詞級對齊...")
-            align_model, metadata = self._get_align_model(language)
+            detected_language = result.get("language", process_language)
+            logger.info(f"Detected language: {detected_language}")
             
-            if align_model:
-                result = whisperx.align(
-                    result["segments"],
-                    align_model,
-                    metadata,
-                    audio,
-                    self.device,
-                    return_char_alignments=False
-                )
+            # 3. 對齊時間戳（如果有對齊模型）
+            if self.align_model and self.align_metadata:
+                logger.info("Aligning timestamps...")
+                try:
+                    result = whisperx.align(
+                        result["segments"], 
+                        self.align_model, 
+                        self.align_metadata, 
+                        audio, 
+                        self.device, 
+                        return_char_alignments=False
+                    )
+                except Exception as e:
+                    logger.warning(f"Alignment failed: {str(e)}")
             
             # 4. 說話者辨識
-            if self.diarization_pipeline:
-                logger.info("開始說話者辨識...")
-                
-                # 設定說話者參數
-                diarization_params = {}
-                if num_speakers:
-                    diarization_params['num_speakers'] = num_speakers
-                if min_speakers:
-                    diarization_params['min_speakers'] = min_speakers
-                if max_speakers:
-                    diarization_params['max_speakers'] = max_speakers
-                
-                diarize_segments = self.diarization_pipeline(
-                    audio, **diarization_params
-                )
-                
-                # 分配說話者標籤
-                result = whisperx.assign_word_speakers(
-                    diarize_segments, result
-                )
-            else:
-                logger.warning("說話者辨識不可用，跳過此步驟")
+            diarization_info = None
+            if self.diarize_model:
+                logger.info("Starting speaker diarization...")
+                try:
+                    # 準備說話者參數
+                    diarize_params = {}
+                    if num_speakers:
+                        diarize_params['num_speakers'] = num_speakers
+                    if min_speakers:
+                        diarize_params['min_speakers'] = min_speakers
+                    if max_speakers:
+                        diarize_params['max_speakers'] = max_speakers
+                    
+                    # 執行說話者辨識
+                    diarize_segments = self.diarize_model(
+                        audio_path, 
+                        **diarize_params
+                    )
+                    
+                    # 將說話者資訊分配給轉錄片段
+                    result = whisperx.assign_word_speakers(diarize_segments, result)
+                    
+                    # 提取說話者統計資訊
+                    diarization_info = self._extract_speaker_stats(diarize_segments)
+                    logger.info(f"Identified {diarization_info['speaker_count']} speakers")
+                    
+                except Exception as e:
+                    logger.warning(f"Speaker diarization failed: {str(e)}")
             
-            # 5. 處理結果
-            processing_time = (datetime.now() - start_time).total_seconds()
+            # 5. 計算處理時間
+            processing_time = None
+            if start_time and end_time:
+                end_time.record()
+                torch.cuda.synchronize()
+                processing_time = start_time.elapsed_time(end_time) / 1000  # 轉換為秒
+                real_time_factor = processing_time / audio_duration
+                logger.info(f"Processing time: {processing_time:.2f}s (RTF: {real_time_factor:.2f}x)")
             
-            # 計算說話者統計
-            segments = result.get("segments", [])
-            speakers = set()
-            for segment in segments:
-                if "speaker" in segment and segment["speaker"]:
-                    speakers.add(segment["speaker"])
+            # 6. 格式化結果
+            formatted_result = self._format_result(
+                result, 
+                diarization_info, 
+                audio_duration, 
+                processing_time,
+                detected_language
+            )
             
-            logger.info(f"處理完成，耗時: {processing_time:.2f}秒, 發現 {len(speakers)} 位說話者")
+            # 7. 清理記憶體
+            self._cleanup_memory()
             
-            return {
-                "segments": segments,
-                "word_segments": result.get("word_segments", []),
-                "language": language,
-                "audio_duration": audio_duration,
-                "processing_time": processing_time,
-                "speaker_count": len(speakers),
-                "speakers": list(speakers),
-                "real_time_factor": processing_time / audio_duration if audio_duration > 0 else 0
+            logger.info("Audio processing completed successfully")
+            return formatted_result
+            
+        except Exception as e:
+            logger.error(f"Audio processing failed: {str(e)}")
+            # 確保清理記憶體
+            self._cleanup_memory()
+            raise Exception(f"音訊處理失敗：{str(e)}")
+    
+    def _extract_speaker_stats(self, diarization) -> Dict[str, Any]:
+        """提取說話者統計資訊"""
+        speakers = set()
+        speaker_times = {}
+        total_speech_time = 0
+        
+        for turn, _, speaker in diarization.itertracks(yield_label=True):
+            speakers.add(speaker)
+            duration = turn.end - turn.start
+            total_speech_time += duration
+            
+            if speaker not in speaker_times:
+                speaker_times[speaker] = 0
+            speaker_times[speaker] += duration
+        
+        # 計算說話時間百分比
+        speaker_percentages = {}
+        for speaker, time in speaker_times.items():
+            speaker_percentages[speaker] = (time / total_speech_time * 100) if total_speech_time > 0 else 0
+        
+        return {
+            "speaker_count": len(speakers),
+            "speakers": list(speakers),
+            "speaker_times": speaker_times,
+            "speaker_percentages": speaker_percentages,
+            "total_speech_time": total_speech_time
+        }
+    
+    def _format_result(self, 
+                      result: Dict, 
+                      diarization_info: Optional[Dict],
+                      audio_duration: float,
+                      processing_time: Optional[float],
+                      detected_language: str) -> Dict[str, Any]:
+        """格式化處理結果"""
+        
+        # 整理轉錄片段
+        segments = []
+        for segment in result.get("segments", []):
+            formatted_segment = {
+                "start": round(segment.get("start", 0), 2),
+                "end": round(segment.get("end", 0), 2),
+                "text": segment.get("text", "").strip(),
+                "speaker": segment.get("speaker", "SPEAKER_00")
             }
             
-        except Exception as e:
-            logger.error(f"處理音訊時發生錯誤: {e}")
-            raise RuntimeError(f"音訊處理失敗: {str(e)}")
-    
-    def _get_align_model(self, language: str):
-        """取得或載入語言特定的對齊模型"""
-        try:
-            if language not in self.align_models:
-                logger.info(f"載入 {language} 對齊模型")
-                model, metadata = whisperx.load_align_model(
-                    language_code=language,
-                    device=self.device
-                )
-                self.align_models[language] = (model, metadata)
+            # 添加詞級對齊資訊（如果有）
+            if "words" in segment:
+                formatted_segment["words"] = [
+                    {
+                        "start": round(word.get("start", 0), 2),
+                        "end": round(word.get("end", 0), 2),
+                        "word": word.get("word", ""),
+                        "score": round(word.get("score", 0), 3)
+                    }
+                    for word in segment["words"]
+                ]
             
-            return self.align_models[language]
-        except Exception as e:
-            logger.warning(f"無法載入 {language} 對齊模型: {e}")
-            return None, None
-    
-    def process_audio_chunk(
-        self, 
-        audio_chunk: bytes, 
-        language: str = "zh"
-    ) -> Dict:
-        """
-        處理音訊片段（用於即時處理）
+            segments.append(formatted_segment)
         
-        Args:
-            audio_chunk: 音訊片段位元組
-            language: 語言代碼
-        
-        Returns:
-            部分處理結果
-        """
-        try:
-            # 這裡可以實作即時處理邏輯
-            # 目前簡化為呼叫完整處理
-            # 實際實作需要音訊緩衝區管理
-            
-            logger.info("處理音訊片段（簡化實作）")
-            
-            return {
-                "status": "chunk_processed",
-                "partial_result": [],
-                "timestamp": datetime.now().isoformat()
+        # 構建完整結果
+        formatted_result = {
+            "segments": segments,
+            "metadata": {
+                "audio_duration": round(audio_duration, 2),
+                "processing_time": round(processing_time, 2) if processing_time else None,
+                "real_time_factor": round(processing_time / audio_duration, 2) if processing_time and audio_duration > 0 else None,
+                "detected_language": detected_language,
+                "model_size": self.model_size,
+                "device": self.device
             }
-            
-        except Exception as e:
-            logger.error(f"處理音訊片段時發生錯誤: {e}")
-            raise RuntimeError(f"音訊片段處理失敗: {str(e)}")
+        }
+        
+        # 添加說話者資訊（如果有）
+        if diarization_info:
+            formatted_result["diarization"] = diarization_info
+        
+        return formatted_result
     
-    def estimate_processing_time(self, audio_duration: float) -> float:
-        """
-        估算處理時間
-        
-        Args:
-            audio_duration: 音訊時長（秒）
-        
-        Returns:
-            預估處理時間（秒）
-        """
-        # 基於經驗的估算公式
-        base_factor = 0.05  # 基礎處理係數
-        
-        if self.device == 'cuda':
-            device_factor = 1.0
-        elif self.device == 'mps':
-            device_factor = 1.5
-        else:
-            device_factor = 3.0
-        
-        model_factor = {
-            'tiny': 0.5,
-            'base': 0.7,
-            'small': 1.0,
-            'medium': 1.5,
-            'large-v2': 2.0,
-            'large-v3': 2.2
-        }.get(self.model_size, 2.0)
-        
-        estimated_time = audio_duration * base_factor * device_factor * model_factor
-        
-        return max(estimated_time, 5.0)  # 最少 5 秒處理時間
+    def _cleanup_memory(self):
+        """清理 GPU 記憶體"""
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
     
-    def cleanup(self):
-        """
-        清理資源
-        """
+    async def process_audio_file(self, file_content: bytes, filename: str, **kwargs) -> Dict[str, Any]:
+        """處理上傳的音訊檔案"""
+        # 創建臨時檔案
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(filename).suffix) as tmp_file:
+            tmp_file.write(file_content)
+            tmp_path = tmp_file.name
+        
         try:
-            # 清理 GPU 記憶體
-            if self.device == 'cuda' and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            
-            # 重置模型引用
-            self.whisper_model = None
-            self.align_models.clear()
-            self.diarization_pipeline = None
-            
-            logger.info("🧹 WhisperX 處理器資源清理完成")
-            
-        except Exception as e:
-            logger.error(f"清理資源時發生錯誤: {e}")
+            # 處理音訊
+            result = await self.process_meeting_audio(tmp_path, **kwargs)
+            return result
+        finally:
+            # 清理臨時檔案
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
     
-    def get_supported_languages(self) -> List[Dict[str, str]]:
-        """
-        取得支援的語言列表
-        """
-        return [
-            {"code": "zh", "name": "中文", "whisper_support": True, "align_support": True},
-            {"code": "en", "name": "English", "whisper_support": True, "align_support": True},
-            {"code": "ja", "name": "日本語", "whisper_support": True, "align_support": True},
-            {"code": "ko", "name": "한국어", "whisper_support": True, "align_support": False},
-            {"code": "es", "name": "Español", "whisper_support": True, "align_support": True},
-            {"code": "fr", "name": "Français", "whisper_support": True, "align_support": True},
-            {"code": "de", "name": "Deutsch", "whisper_support": True, "align_support": True},
-            {"code": "it", "name": "Italiano", "whisper_support": True, "align_support": True},
-            {"code": "pt", "name": "Português", "whisper_support": True, "align_support": True}
-        ]
+    def get_model_info(self) -> Dict[str, Any]:
+        """獲取模型資訊"""
+        return {
+            "model_size": self.model_size,
+            "device": self.device,
+            "compute_type": self.compute_type,
+            "language": self.language,
+            "cuda_available": torch.cuda.is_available(),
+            "models_loaded": {
+                "whisper": self.model is not None,
+                "alignment": self.align_model is not None,
+                "diarization": self.diarize_model is not None
+            }
+        }
+    
+    def set_batch_size(self, batch_size: int):
+        """動態調整批次大小（用於記憶體優化）"""
+        self.batch_size = max(1, min(batch_size, 32))
+        logger.info(f"Batch size set to: {self.batch_size}")
