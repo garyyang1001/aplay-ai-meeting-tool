@@ -2,570 +2,599 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>🎤 好事AI 會議助手會議分析工具</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 會議助手 v2.0 - 專業級會議錄音與分析工具</title>
+    <meta name="description" content="整合 OpenRouter、Firebase、Mac Mini 處理服務的專業 AI 會議分析工具">
+    <meta name="keywords" content="AI,會議,錄音,轉錄,分析,說話者識別,pyannote,OpenRouter">
+    
+    <!-- PWA 支援 -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#3B82F6">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <!-- 樣式 -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent;
+        :root {
+            --primary-color: #3B82F6;
+            --success-color: #10B981;
+            --warning-color: #F59E0B;
+            --error-color: #EF4444;
+            --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
-        
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg-gradient);
             min-height: 100vh;
-            padding: 10px;
-            color: #333;
         }
-        
+
         .container {
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-            padding: 20px;
-            max-width: 480px;
+            max-width: 768px;
             margin: 0 auto;
-            min-height: calc(100vh - 20px);
-            display: flex;
-            flex-direction: column;
+            background: white;
+            min-height: 100vh;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
         }
-        
+
         .header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            color: white;
+            padding: 1rem;
             text-align: center;
-            margin-bottom: 20px;
         }
-        
-        .header h1 {
-            font-size: 1.8em;
-            background: linear-gradient(45deg, #667eea, #764ba2);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
-        }
-        
-        .status {
-            font-size: 14px;
-            color: #666;
-            margin-bottom: 20px;
-            text-align: center;
-            padding: 8px;
+
+        .service-status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8fafc;
+            padding: 0.75rem;
             border-radius: 8px;
-            background: #f8f9fa;
+            margin: 1rem 0;
+            font-size: 0.875rem;
         }
-        
-        .status.error {
-            background: #ffe6e6;
-            color: #e74c3c;
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
         }
-        
-        .status.success {
-            background: #e8f5e8;
-            color: #27ae60;
+
+        .status-item.available {
+            color: var(--success-color);
         }
-        
-        /* 錄音控制區域 */
-        .recording-section {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-radius: 16px;
-            padding: 20px;
-            text-align: center;
-            margin-bottom: 20px;
-            border: 2px solid #e0e0e0;
-            transition: all 0.3s ease;
+
+        .status-item.unavailable {
+            color: var(--error-color);
         }
-        
-        .recording-section.recording {
-            border-color: #e74c3c;
-            background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.02); }
-        }
-        
-        .recording-status {
-            font-size: 16px;
+
+        .processing-mode {
             font-weight: 600;
-            color: #555;
-            margin-bottom: 15px;
+            color: #374151;
         }
-        
-        .recording-section.recording .recording-status {
-            color: #e74c3c;
+
+        .mode-value {
+            color: var(--primary-color);
         }
-        
-        .record-button {
-            width: 80px;
-            height: 80px;
+
+        .recording-section {
+            text-align: center;
+            padding: 2rem 1rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .record-btn {
+            width: 120px;
+            height: 120px;
             border-radius: 50%;
             border: none;
-            font-size: 32px;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            font-size: 2rem;
             cursor: pointer;
             transition: all 0.3s ease;
-            margin: 15px auto;
-            display: block;
-            background: linear-gradient(45deg, #e74c3c, #c0392b);
-            color: white;
-            box-shadow: 0 4px 16px rgba(231, 76, 60, 0.3);
-            position: relative;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+            margin-bottom: 1rem;
         }
-        
-        .record-button:active {
-            transform: scale(0.95);
+
+        .record-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
         }
-        
-        .record-button.recording {
-            background: linear-gradient(45deg, #27ae60, #2ecc71);
-            animation: recordPulse 1.5s infinite;
-            box-shadow: 0 4px 20px rgba(39, 174, 96, 0.4);
+
+        .record-btn.recording {
+            animation: pulse 1.5s infinite;
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
         }
-        
-        @keyframes recordPulse {
-            0%, 100% { box-shadow: 0 4px 20px rgba(39, 174, 96, 0.4); }
-            50% { box-shadow: 0 4px 30px rgba(39, 174, 96, 0.7); }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
-        
-        .recording-timer {
-            font-size: 24px;
-            font-weight: bold;
-            color: #e74c3c;
-            font-family: 'Courier New', monospace;
-            margin: 10px 0;
-        }
-        
-        .controls {
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-            margin: 15px 0;
-        }
-        
+
         .stop-btn {
-            width: 50px;
-            height: 50px;
-            border-radius: 12px;
-            border: none;
-            font-size: 20px;
-            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            background: #6b7280;
             color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            margin-left: 1rem;
             cursor: pointer;
-            transition: all 0.3s ease;
             display: none;
         }
-        
-        .stop-btn:active {
-            transform: scale(0.95);
+
+        .recording-timer {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #ef4444;
+            margin: 1rem 0;
         }
-        
-        .file-upload {
-            margin-top: 15px;
-        }
-        
-        .file-label {
-            display: inline-block;
-            padding: 12px 20px;
-            background: linear-gradient(45deg, #3498db, #2980b9);
-            color: white;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.3s ease;
-            border: none;
-        }
-        
-        .file-label:active {
-            transform: scale(0.95);
-        }
-        
-        .file-input {
-            display: none;
-        }
-        
-        /* 語音轉文字區域 - 固定高度 */
+
         .transcript-section {
-            margin-bottom: 20px;
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
+            padding: 1rem;
         }
-        
-        .transcript-section label {
-            font-weight: 600;
-            color: #555;
-            margin-bottom: 10px;
-            display: block;
-            font-size: 16px;
-        }
-        
+
         .transcript-box {
-            background: #f8f9fa;
-            border: 2px solid #e0e0e0;
-            border-radius: 12px;
-            padding: 16px;
-            font-size: 15px;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 1rem;
+            min-height: 120px;
+            font-family: monospace;
+            font-size: 0.875rem;
             line-height: 1.5;
             white-space: pre-wrap;
-            word-wrap: break-word;
-            /* 關鍵：固定高度並可滾動 */
-            height: 150px;
             overflow-y: auto;
-            flex-grow: 1;
-            max-height: 200px;
-            min-height: 120px;
-            transition: border-color 0.3s ease;
+            max-height: 300px;
         }
-        
-        .transcript-box:focus-within {
-            border-color: #667eea;
-        }
-        
-        .transcript-box:empty::before {
-            content: "點擊麥克風開始錄音，語音將自動轉為文字...";
-            color: #999;
-            font-style: italic;
-            font-size: 14px;
-        }
-        
-        /* 分析選項 */
+
         .analysis-section {
-            margin-bottom: 20px;
+            padding: 1rem;
+            border-top: 1px solid #e5e7eb;
         }
-        
-        .analysis-section label {
-            font-weight: 600;
-            color: #555;
-            margin-bottom: 10px;
-            display: block;
-            font-size: 16px;
+
+        .analysis-controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
         }
-        
-        select {
-            width: 100%;
-            padding: 16px;
-            border: 2px solid #e0e0e0;
-            border-radius: 12px;
-            font-size: 16px;
+
+        .analysis-select {
+            flex: 1;
+            min-width: 200px;
+            padding: 0.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
             background: white;
-            color: #333;
-            appearance: none;
-            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
-            background-position: right 12px center;
-            background-repeat: no-repeat;
-            background-size: 16px;
-            cursor: pointer;
         }
-        
-        select:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-        
-        /* 分析按鈕 */
+
         .analyze-btn {
-            width: 100%;
-            padding: 18px;
-            background: linear-gradient(45deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
             color: white;
             border: none;
-            border-radius: 12px;
-            font-size: 18px;
-            font-weight: 600;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
             cursor: pointer;
+            font-weight: 600;
             transition: all 0.3s ease;
-            margin-bottom: 20px;
-            position: relative;
-            overflow: hidden;
+            white-space: nowrap;
         }
-        
-        .analyze-btn:active {
-            transform: scale(0.98);
+
+        .analyze-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
         }
-        
+
         .analyze-btn:disabled {
             opacity: 0.6;
             cursor: not-allowed;
-            transform: none;
         }
-        
-        .analyze-btn::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-            transition: left 0.5s;
-        }
-        
-        .analyze-btn:hover::before {
-            left: 100%;
-        }
-        
-        /* 結果顯示 */
-        .result {
-            background: #f8f9fa;
-            border-radius: 12px;
-            padding: 20px;
-            border-left: 4px solid #667eea;
-            margin-bottom: 15px;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-        
-        .result.error {
-            background: #ffe6e6;
-            border-left-color: #e74c3c;
-            color: #c0392b;
-        }
-        
-        .loading {
-            text-align: center;
-            color: #667eea;
-            font-style: italic;
-            padding: 20px;
-        }
-        
-        /* 分享按鈕 */
-        .share-section {
+
+        .result-section {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #fefefe;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
             display: none;
-            margin-bottom: 20px;
         }
-        
+
+        .result-section.show {
+            display: block;
+        }
+
+        .speaker-info {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .speaker-stats {
+            margin-top: 0.5rem;
+        }
+
+        .speaker-stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            background: white;
+            border-radius: 4px;
+        }
+
+        .speaker-bar {
+            width: 100px;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .speaker-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+            transition: width 0.3s ease;
+        }
+
+        .share-section {
+            padding: 1rem;
+            border-top: 1px solid #e5e7eb;
+            background: #f8fafc;
+            display: none;
+        }
+
         .share-section.show {
             display: block;
         }
-        
+
         .share-buttons {
             display: flex;
-            gap: 10px;
+            gap: 1rem;
             justify-content: center;
         }
-        
+
         .share-btn {
-            flex: 1;
-            padding: 14px 20px;
+            background: #00c300;
+            color: white;
             border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: 600;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            font-weight: 600;
             display: flex;
             align-items: center;
-            justify-content: center;
-            gap: 8px;
+            gap: 0.5rem;
+            transition: all 0.3s ease;
         }
-        
-        .share-btn:active {
-            transform: scale(0.95);
-        }
-        
-        .line-share-btn {
-            background: linear-gradient(45deg, #00C300, #00B300);
-            color: white;
-            box-shadow: 0 4px 12px rgba(0, 195, 0, 0.3);
-        }
-        
+
         .copy-btn {
-            background: linear-gradient(45deg, #6c757d, #5a6268);
-            color: white;
-            box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            background: #6b7280;
         }
-        
+
         .share-btn:hover {
-            transform: translateY(-2px);
+            transform: translateY(-1px);
+            opacity: 0.9;
         }
-        
-        /* 音頻播放器 */
+
+        .upload-section {
+            padding: 1rem;
+            text-align: center;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .upload-input {
+            display: none;
+        }
+
+        .upload-label {
+            display: inline-block;
+            background: #6366f1;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .upload-label:hover {
+            background: #5b21b6;
+            transform: translateY(-1px);
+        }
+
         .audio-player {
             width: 100%;
-            margin: 15px 0;
-            border-radius: 8px;
-            background: #f8f9fa;
+            margin-top: 1rem;
+            display: none;
         }
-        
-        /* 響應式調整 */
-        @media (max-width: 480px) {
-            .container {
-                padding: 15px;
-                border-radius: 12px;
-                margin: 5px;
-                min-height: calc(100vh - 10px);
-            }
-            
-            .header h1 {
-                font-size: 1.6em;
-            }
-            
-            .record-button {
-                width: 70px;
-                height: 70px;
-                font-size: 28px;
-            }
-            
-            .transcript-box {
-                height: 130px;
-                max-height: 160px;
-                font-size: 14px;
-            }
-            
-            .analyze-btn {
-                padding: 16px;
-                font-size: 16px;
-            }
-            
-            .share-btn {
-                padding: 12px 16px;
-                font-size: 14px;
-            }
+
+        .status {
+            padding: 0.75rem 1rem;
+            margin: 0.5rem 1rem;
+            border-radius: 6px;
+            font-weight: 500;
+            text-align: center;
         }
-        
-        @media (max-width: 360px) {
-            .container {
-                padding: 12px;
-            }
-            
-            .record-button {
-                width: 60px;
-                height: 60px;
-                font-size: 24px;
-            }
-            
-            .transcript-box {
-                height: 120px;
-                max-height: 140px;
-                padding: 12px;
-            }
-            
-            .share-buttons {
-                flex-direction: column;
-            }
-            
-            .share-btn {
-                padding: 12px;
-                font-size: 14px;
-            }
+
+        .status.success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
         }
-        
-        /* 改善滾動條樣式 */
-        .transcript-box::-webkit-scrollbar,
-        .result::-webkit-scrollbar {
-            width: 6px;
+
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
         }
-        
-        .transcript-box::-webkit-scrollbar-track,
-        .result::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 3px;
+
+        .status.warning {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fde68a;
         }
-        
-        .transcript-box::-webkit-scrollbar-thumb,
-        .result::-webkit-scrollbar-thumb {
-            background: #c1c1c1;
-            border-radius: 3px;
+
+        .status.info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
         }
-        
-        .transcript-box::-webkit-scrollbar-thumb:hover,
-        .result::-webkit-scrollbar-thumb:hover {
-            background: #a8a8a8;
-        }
-        
-        /* 成功提示 */
+
         .toast {
             position: fixed;
-            top: 20px;
+            bottom: 2rem;
             left: 50%;
             transform: translateX(-50%);
             background: #27ae60;
             color: white;
-            padding: 12px 24px;
-            border-radius: 25px;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
             font-weight: 600;
             z-index: 1000;
             opacity: 0;
-            transition: opacity 0.3s ease;
+            transition: all 0.3s ease;
         }
-        
+
         .toast.show {
             opacity: 1;
+            transform: translateX(-50%) translateY(-10px);
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 2rem;
+            color: #6b7280;
+        }
+
+        .loading::before {
+            content: '';
+            width: 20px;
+            height: 20px;
+            border: 2px solid #e5e7eb;
+            border-top: 2px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            color: #dc2626;
+            background: #fee2e2;
+            padding: 1rem;
+            border-radius: 6px;
+            border: 1px solid #fca5a5;
+        }
+
+        .version-info {
+            text-align: center;
+            padding: 1rem;
+            color: #6b7280;
+            font-size: 0.875rem;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .refresh-btn {
+            background: #8b5cf6;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            margin-left: 1rem;
+        }
+
+        /* 響應式設計 */
+        @media (max-width: 640px) {
+            .analysis-controls {
+                flex-direction: column;
+            }
+
+            .analysis-select {
+                min-width: auto;
+                width: 100%;
+            }
+
+            .share-buttons {
+                flex-direction: column;
+            }
+
+            .service-status {
+                flex-direction: column;
+                gap: 0.5rem;
+                text-align: center;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>🎤 好事AI 會議助手會議分析工具</h1>
+        <!-- 頁面標題 -->
+        <header class="header">
+            <h1 class="text-2xl font-bold mb-2">🎤 AI 會議助手 v2.0</h1>
+            <p class="text-sm opacity-90">專業級會議錄音、轉錄與 AI 分析</p>
+        </header>
+
+        <!-- 服務狀態顯示 -->
+        <div id="serviceStatus" class="mx-4 mt-4">
+            <div class="service-status">
+                <div class="status-item">
+                    <span class="status-icon">⏳</span>
+                    <span>檢查服務狀態中...</span>
+                </div>
+                <button onclick="recheckServices()" class="refresh-btn">🔄 重新檢查</button>
+            </div>
         </div>
-        
-        <div class="status" id="status">準備就緒</div>
-        
-        <!-- 錄音控制區域 -->
-        <div class="recording-section" id="recordingSection">
-            <div class="recording-status" id="recordingStatus">點擊麥克風開始錄製會議</div>
+
+        <!-- 狀態顯示區 -->
+        <div id="status" class="status info">系統啟動中...</div>
+
+        <!-- 錄音控制區 -->
+        <div id="recordingSection" class="recording-section">
+            <button id="recordBtn" class="record-btn" onclick="toggleRecording()">
+                🎤
+            </button>
+            <button id="stopBtn" class="stop-btn" onclick="stopRecording()">
+                ⏹️ 停止
+            </button>
             
-            <button class="record-button" id="recordBtn" onclick="toggleRecording()">🎤</button>
-            
-            <div class="recording-timer" id="recordingTime">00:00</div>
-            
-            <div class="controls">
-                <button class="stop-btn" id="stopBtn" onclick="stopRecording()">⏹️</button>
+            <div id="recordingStatus" class="text-lg font-semibold mb-2">
+                點擊麥克風開始錄製會議
             </div>
             
-            <div class="file-upload">
-                <label for="audioFile" class="file-label">📁 或上傳音頻文件</label>
-                <input type="file" id="audioFile" class="file-input" accept="audio/*" onchange="handleFileUpload(event)">
-            </div>
-            
-            <audio class="audio-player" id="audioPlayer" controls style="display: none;"></audio>
+            <div id="recordingTime" class="recording-timer">00:00</div>
         </div>
-        
-        <!-- 語音轉文字區域 - 固定高度 -->
+
+        <!-- 音頻播放器 -->
+        <div class="px-4">
+            <audio id="audioPlayer" class="audio-player" controls></audio>
+        </div>
+
+        <!-- 轉錄顯示區 -->
         <div class="transcript-section">
-            <label for="transcript">📝 語音轉文字結果</label>
-            <div class="transcript-box" id="transcript"></div>
+            <h3 class="text-lg font-semibold mb-2">📝 即時轉錄</h3>
+            <div id="transcript" class="transcript-box">
+                等待錄音開始...
+            </div>
         </div>
-        
-        <!-- 分析選項 -->
+
+        <!-- 分析控制區 -->
         <div class="analysis-section">
-            <label for="analysisType">🔍 分析類型</label>
-            <select id="analysisType">
-                <option value="summary">會議摘要</option>
-                <option value="action_items">行動項目</option>
-                <option value="key_decisions">重要決策</option>
-                <option value="follow_up">後續追蹤</option>
-                <option value="participants">參與者分析</option>
-                <option value="sentiment">情緒分析</option>
-            </select>
+            <h3 class="text-lg font-semibold mb-3">🤖 AI 分析</h3>
+            
+            <div class="analysis-controls">
+                <select id="analysisType" class="analysis-select">
+                    <option value="會議摘要">📋 會議摘要</option>
+                    <option value="行動項目">✅ 行動項目</option>
+                    <option value="重要決策">🎯 重要決策</option>
+                    <option value="智能分析">🧠 智能分析</option>
+                </select>
+                
+                <button id="analyzeBtn" class="analyze-btn" onclick="analyzeTranscript()">
+                    🤖 開始AI分析
+                </button>
+            </div>
+
+            <!-- 分析結果顯示 -->
+            <div id="result" class="result-section"></div>
+
+            <!-- 說話者信息顯示 -->
+            <div id="speakerInfo" class="speaker-info"></div>
         </div>
-        
-        <!-- 分析按鈕 -->
-        <button class="analyze-btn" id="analyzeBtn" onclick="analyzeTranscript()">🤖 開始AI分析</button>
-        
-        <!-- 結果顯示 -->
-        <div id="result" class="result" style="display: none;"></div>
-        
-        <!-- 分享功能 -->
-        <div class="share-section" id="shareSection">
+
+        <!-- 分享功能區 -->
+        <div id="shareSection" class="share-section">
+            <h3 class="text-lg font-semibold mb-3">📤 分享結果</h3>
             <div class="share-buttons">
-                <button class="share-btn line-share-btn" onclick="shareToLine()">
-                    📱 分享到Line
+                <button class="share-btn" onclick="shareToLine()">
+                    💬 分享到 Line
                 </button>
                 <button class="share-btn copy-btn" onclick="copyResult()">
                     📋 複製結果
                 </button>
             </div>
         </div>
+
+        <!-- 檔案上傳區 -->
+        <div class="upload-section">
+            <h3 class="text-lg font-semibold mb-3">📁 或上傳音頻檔案</h3>
+            <input type="file" id="audioFile" class="upload-input" 
+                   accept="audio/*" onchange="handleFileUpload(event)">
+            <label for="audioFile" class="upload-label">
+                📎 選擇音頻檔案
+            </label>
+            <p class="text-sm text-gray-600 mt-2">
+                支援 MP3、WAV、WebM 等格式
+            </p>
+        </div>
+
+        <!-- 版本信息 -->
+        <div class="version-info">
+            <p>AI 會議助手 v2.0 | 整合 OpenRouter + Firebase + Mac Mini</p>
+            <p class="text-xs mt-1">
+                🚀 前端 + ☁️ Firebase + 🖥️ Mac Mini + 🔗 Cloudflare Tunnel
+            </p>
+        </div>
     </div>
-    
-    <!-- 成功提示 -->
-    <div class="toast" id="toast"></div>
-    
+
+    <!-- Toast 通知 -->
+    <div id="toast" class="toast"></div>
+
+    <!-- PWA 安裝提示 -->
+    <script>
+        // PWA 安裝提示
+        let deferredPrompt;
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            
+            // 顯示安裝提示
+            const installBanner = document.createElement('div');
+            installBanner.innerHTML = `
+                <div style="position: fixed; bottom: 0; left: 0; right: 0; background: #1e40af; color: white; padding: 1rem; text-align: center; z-index: 1001;">
+                    <p>📱 將 AI 會議助手安裝到主畫面？</p>
+                    <button onclick="installPWA()" style="background: white; color: #1e40af; border: none; padding: 0.5rem 1rem; border-radius: 4px; margin: 0 0.5rem; cursor: pointer;">安裝</button>
+                    <button onclick="this.parentElement.parentElement.remove()" style="background: transparent; color: white; border: 1px solid white; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">稍後</button>
+                </div>
+            `;
+            document.body.appendChild(installBanner);
+        });
+
+        window.installPWA = async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                deferredPrompt = null;
+                
+                // 移除安裝橫幅
+                const banner = document.querySelector('[style*="position: fixed; bottom: 0"]');
+                if (banner) banner.parentElement.remove();
+            }
+        };
+
+        // Service Worker 註冊
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(console.error);
+        }
+    </script>
+
+    <!-- 主程式 -->
     <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
