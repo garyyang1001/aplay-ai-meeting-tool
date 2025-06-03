@@ -9,6 +9,7 @@ let recordingTimer: NodeJS.Timeout | null = null;
 let recognition: any = null; // 使用 any 避免類型問題
 let isRecording = false;
 let transcriptText = '';
+let lastProcessedResultIndex = 0; // 追蹤已處理的結果索引
 
 // 初始化
 function init() {
@@ -64,12 +65,14 @@ function initSpeechRecognition() {
             let finalTranscript = '';
             let interimTranscript = '';
             
-            for (let i = event.results.length - 1; i >= 0; i--) {
+            // 只處理新的結果，避免重複
+            for (let i = lastProcessedResultIndex; i < event.results.length; i++) {
                 const result = event.results[i];
                 if (result.isFinal) {
-                    finalTranscript = result[0].transcript + finalTranscript;
+                    finalTranscript += result[0].transcript;
+                    lastProcessedResultIndex = i + 1; // 更新已處理的索引
                 } else {
-                    interimTranscript = result[0].transcript + interimTranscript;
+                    interimTranscript += result[0].transcript;
                 }
             }
             
@@ -79,17 +82,33 @@ function initSpeechRecognition() {
         recognition.onerror = (event: any) => {
             console.error('語音識別錯誤:', event.error);
             showStatus(`語音識別錯誤: ${event.error}`, 'error');
+            
+            // 特定錯誤處理
+            if (event.error === 'no-speech') {
+                showStatus('未檢測到語音，請再次嘗試', 'info');
+            } else if (event.error === 'network') {
+                showStatus('網路連接問題，語音識別可能不穩定', 'error');
+            }
         };
         
         recognition.onend = () => {
+            console.log('語音識別結束');
             if (isRecording) {
                 // 如果還在錄音，重新啟動語音識別
                 try {
-                    recognition?.start();
+                    setTimeout(() => {
+                        if (recognition && isRecording) {
+                            recognition.start();
+                        }
+                    }, 100); // 短暫延遲避免重複啟動
                 } catch (e) {
                     console.log('語音識別重啟失敗:', e);
                 }
             }
+        };
+        
+        recognition.onstart = () => {
+            console.log('語音識別開始');
         };
     }
 }
@@ -100,7 +119,13 @@ function updateTranscript(finalText: string, interimText: string) {
         if (finalText) {
             transcriptText += finalText + ' ';
         }
-        transcriptElement.textContent = transcriptText + (interimText ? `[${interimText}]` : '');
+        
+        // 顯示最終文字 + 臨時文字（用括號標示）
+        const displayText = transcriptText + (interimText ? `(${interimText})` : '');
+        transcriptElement.textContent = displayText;
+        
+        // 自動滾動到底部
+        transcriptElement.scrollTop = transcriptElement.scrollHeight;
     }
 }
 
@@ -115,6 +140,16 @@ async function toggleRecording() {
 
 async function startRecording() {
     try {
+        // 重置轉錄文字和索引
+        transcriptText = '';
+        lastProcessedResultIndex = 0;
+        
+        // 清空轉錄顯示
+        const transcriptElement = document.getElementById('transcript');
+        if (transcriptElement) {
+            transcriptElement.textContent = '';
+        }
+        
         // 請求麥克風權限
         audioStream = await navigator.mediaDevices.getUserMedia({
             audio: {
@@ -158,11 +193,11 @@ async function startRecording() {
         
         // 開始語音識別
         if (recognition) {
-            transcriptText = '';
             try {
                 recognition.start();
             } catch (e) {
                 console.error('語音識別啟動失敗:', e);
+                showStatus('語音識別啟動失敗，僅進行錄音', 'error');
             }
         }
         
@@ -203,11 +238,19 @@ async function stopRecording() {
         audioStream = null;
     }
     
+    // 重置狀態
+    lastProcessedResultIndex = 0;
+    
     // 更新 UI
     updateRecordingUI(false);
     stopRecordingTimer();
     
     showStatus('錄音完成');
+    
+    // 如果有轉錄內容，提示可以進行分析
+    if (transcriptText.trim()) {
+        showStatus('錄音完成，可以開始 AI 分析');
+    }
 }
 
 function updateRecordingUI(recording: boolean) {
@@ -280,7 +323,10 @@ async function analyzeTranscript() {
     const analysisTypeElement = document.getElementById('analysisType') as HTMLSelectElement;
     const analyzeBtn = document.getElementById('analyzeBtn') as HTMLButtonElement;
     
-    if (!transcript || transcript === '等待錄音...' || transcript.includes('已上傳音頻文件')) {
+    // 清理轉錄文字，移除臨時文字標記
+    const cleanTranscript = transcript?.replace(/\([^)]*\)/g, '').trim();
+    
+    if (!cleanTranscript || cleanTranscript === '等待錄音...' || cleanTranscript.includes('已上傳音頻文件')) {
         showResult('請先錄音或確保語音轉文字完成', true);
         return;
     }
@@ -296,11 +342,11 @@ async function analyzeTranscript() {
     analyzeBtn.disabled = true;
     analyzeBtn.textContent = '🤔 AI思考中...';
     showStatus('正在分析中，請稍候...');
-    showResult('<div class=\"loading\">⏳ AI正在分析您的會議內容...</div>');
+    showResult('<div class="loading">⏳ AI正在分析您的會議內容...</div>');
     
     try {
         const prompt = getPromptTemplate(analysisType);
-        const fullPrompt = `${prompt}\n\n會議錄音轉錄內容：\n${transcript}`;
+        const fullPrompt = `${prompt}\n\n會議錄音轉錄內容：\n${cleanTranscript}`;
         
         const response = await api.chat(fullPrompt);
         
@@ -342,7 +388,7 @@ function showResult(content: string, isError: boolean = false) {
     const result = document.getElementById('result');
     if (result) {
         result.innerHTML = isError ? 
-            `<div class=\"error\">${content}</div>` : 
+            `<div class="error">${content}</div>` : 
             `<div>${content.replace(/\n/g, '<br>')}</div>`;
         result.style.display = 'block';
     }
